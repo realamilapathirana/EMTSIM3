@@ -203,10 +203,11 @@ DEMO_OFF = {"chatter": "off", "interp": "off"}
 d = Drawing(settings=dict(dt="100u", tstop="5m", **DEMO_OFF))
 d.add("V", "BATTERY", 0, 8, 0, mag="10", angle="0", freq="0", r="", l="")
 d.gnd(0, 8)
-d.add("SW", "SWITCH", 4, 8, 0, state="closed", times="0.003", opens="at the time")
-d.add("R", "R", 8, 8, 0, value="1")
-d.add("L", "L", 12, 8, 90, value="1m")
-d.gnd(12, 12)
+d.wire((4, 8), (6, 8))
+d.add("SW", "SWITCH", 6, 8, 0, state="closed", times="0.003", opens="at the time")
+d.add("R", "R", 10, 8, 0, value="1")
+d.add("L", "L", 14, 8, 90, value="1m")
+d.gnd(14, 12)
 save("demo_chatter", d, "demo: chatter after opening a switch", """
 DEMO: numerical chatter (Watson & Arrillaga section 9.4; chapter 8 of the Tiny book)
 
@@ -226,10 +227,11 @@ Command line: run.bat circuits\demo_chatter.net --chatter=on
 d = Drawing(settings=dict(dt="200u", tstop="6m", interp="off"))   # chatter removal stays on (see the text)
 d.add("V", "BATTERY", 0, 8, 0, mag="10", angle="0", freq="0", r="", l="")
 d.gnd(0, 8)
-d.add("SW", "SWITCH", 4, 8, 0, state="open", times="0.00102", opens="at the time")
-d.add("R", "R", 8, 8, 0, value="1")
-d.add("L", "L", 12, 8, 90, value="1m")
-d.gnd(12, 12)
+d.wire((4, 8), (6, 8))
+d.add("SW", "SWITCH", 6, 8, 0, state="open", times="0.00102", opens="at the time")
+d.add("R", "R", 10, 8, 0, value="1")
+d.add("L", "L", 14, 8, 90, value="1m")
+d.gnd(14, 12)
 save("demo_interpolation", d, "demo: switching between time points", """
 DEMO: switching between time points (Watson & Arrillaga section 9.4)
 
@@ -253,10 +255,11 @@ Command line: run.bat circuits\demo_interpolation.net --interp=on
 d = Drawing(settings=dict(dt="50u", tstop="60m", **DEMO_OFF))
 d.add("V", "SOURCE", 0, 8, 0, mag="100", angle="0", freq="50", r="", l="")
 d.gnd(0, 8)
-d.add("SW", "BRK", 4, 8, 0, state="closed", times="0.0201", opens="at current zero")
-d.add("R", "R", 8, 8, 0, value="1")
-d.add("L", "L", 12, 8, 90, value="10m")
-d.gnd(12, 12)
+d.wire((4, 8), (6, 8))
+d.add("SW", "BRK", 6, 8, 0, state="closed", times="0.0201", opens="at current zero")
+d.add("R", "R", 10, 8, 0, value="1")
+d.add("L", "L", 14, 8, 90, value="10m")
+d.gnd(14, 12)
 save("demo_breaker", d, "demo: breaker opening at a current zero", """
 DEMO: a breaker opening at a current zero (both options together)
 

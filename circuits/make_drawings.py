@@ -192,3 +192,84 @@ drop (3/pi) w Ls Id.
 
 Elements used: V behind R + L, THY, D, R, L, C.
 """)
+
+# ================================================================ demonstrations of the switching options
+# Small circuits from Watson & Arrillaga, chapter 9, with chatter removal and switching interpolation
+# switched OFF in the file, so the problem shows first. In the editor: Run, tick "Hold run", tick the
+# option under Run settings, Run again, and the two runs are drawn over each other.
+DEMO_OFF = {"chatter": "off", "interp": "off"}
+
+# ---------------------------------------------------------------- chatter: opening a switch on an inductor
+d = Drawing(settings=dict(dt="100u", tstop="5m", **DEMO_OFF))
+d.add("V", "BATTERY", 0, 8, 0, mag="10", angle="0", freq="0", r="", l="")
+d.gnd(0, 8)
+d.add("SW", "SWITCH", 4, 8, 0, state="closed", times="0.003", opens="at the time")
+d.add("R", "R", 8, 8, 0, value="1")
+d.add("L", "L", 12, 8, 90, value="1m")
+d.gnd(12, 12)
+save("demo_chatter", d, "demo: chatter after opening a switch", """
+DEMO: numerical chatter (Watson & Arrillaga section 9.4; chapter 8 of the Tiny book)
+
+A 10 V battery drives 1 ohm + 1 mH; the switch opens at 3 ms. The current stops, but with the
+plain trapezoidal rule the inductor voltage (node 3) flips between +187 V and -187 V at every
+time step for the rest of the run: numerical chatter, not physics.
+
+Chatter removal and interpolation are OFF in this file. To see the fix in the editor:
+  1. Run, and look at V3 (zoom into 2.5-4 ms).
+  2. Tick "Hold run" above the plots.
+  3. Under Run settings, tick "Chatter removal", and Run again.
+The held run (grey dashed) keeps chattering; the new run is flat at 0 V after 3 ms.
+Command line: run.bat circuits\demo_chatter.net --chatter=on
+""")
+
+# ---------------------------------------------------------------- interpolation: closing a switch between time points
+d = Drawing(settings=dict(dt="200u", tstop="6m", interp="off"))   # chatter removal stays on (see the text)
+d.add("V", "BATTERY", 0, 8, 0, mag="10", angle="0", freq="0", r="", l="")
+d.gnd(0, 8)
+d.add("SW", "SWITCH", 4, 8, 0, state="open", times="0.00102", opens="at the time")
+d.add("R", "R", 8, 8, 0, value="1")
+d.add("L", "L", 12, 8, 90, value="1m")
+d.gnd(12, 12)
+save("demo_interpolation", d, "demo: switching between time points", """
+DEMO: switching between time points (Watson & Arrillaga section 9.4)
+
+A 10 V battery is switched onto 1 ohm + 1 mH at 1.02 ms. The time step is 0.2 ms, so the
+switching instant falls just after a time point. With a fixed time step the switch can only
+close at the next time point, 1.2 ms: the whole current curve starts almost a step late.
+The exact answer is i = 10 (1 - exp(-(t - 1.02 ms) / 1 ms)) A, e.g. 3.16 A at 1.4 ms.
+
+Interpolation is OFF in this file; chatter removal is left ON, because the two belong together:
+without it, the trapezoidal rule's half-step lag after a switching blurs the timing again.
+In the editor:
+  1. Run, switch the plots to Currents, and look at L (zoom into 1-3 ms); V3 shows it too.
+  2. Tick "Hold run".
+  3. Under Run settings, tick "Switch at the exact instant (interpolation)", and Run again.
+The new run closes the switch at 1.02 ms and follows the exact curve; the held run lags it.
+(The coarse time step only makes the lag easy to see: it is always up to one time step.)
+Command line: run.bat circuits\demo_interpolation.net --interp=on
+""")
+
+# ---------------------------------------------------------------- a breaker opening at a current zero
+d = Drawing(settings=dict(dt="50u", tstop="60m", **DEMO_OFF))
+d.add("V", "SOURCE", 0, 8, 0, mag="100", angle="0", freq="50", r="", l="")
+d.gnd(0, 8)
+d.add("SW", "BRK", 4, 8, 0, state="closed", times="0.0201", opens="at current zero")
+d.add("R", "R", 8, 8, 0, value="1")
+d.add("L", "L", 12, 8, 90, value="10m")
+d.gnd(12, 12)
+save("demo_breaker", d, "demo: breaker opening at a current zero", """
+DEMO: a breaker opening at a current zero (both options together)
+
+A 100 V, 50 Hz source feeds 1 ohm + 10 mH through a breaker that gets its open command at
+20.1 ms and opens at the next current zero. Without interpolation the zero is only noticed at
+the following time point, so a small current is chopped, and the plain trapezoidal rule then
+chatters: the inductor voltage (node 3) swings +-250 V at every step for the rest of the run.
+
+Chatter removal and interpolation are OFF in this file. In the editor:
+  1. Run, and look at V3 and the breaker current after 29 ms.
+  2. Tick "Hold run".
+  3. Under Run settings, tick both "Switch at the exact instant" and "Chatter removal"; Run.
+The breaker now opens exactly where its current crosses zero, and V3 stays at 0 afterwards.
+Try each option on its own, too: interpolation alone still leaves the chatter.
+Command line: run.bat circuits\demo_breaker.net --chatter=on --interp=on
+""")

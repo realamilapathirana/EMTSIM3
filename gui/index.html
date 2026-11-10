@@ -165,11 +165,6 @@
     <option value="python">Python</option>
     <option value="both">Both (compare)</option>
   </select>
-  <select id="overlay" title="Also run the circuit a second time and draw it as a grey dashed line">
-    <option value="none">No overlay</option>
-    <option value="plain">Overlay: plain method (chatter removal &amp; interpolation off)</option>
-    <option value="cda">Overlay: with chatter removal &amp; interpolation</option>
-  </select>
   <button class="primary" id="btnRun" title="Run the simulation (F5)">▶ Run</button>
 </header>
 
@@ -956,13 +951,6 @@ async function run() {
   try {
     const meta = raw == null ? { phases: net.phases, drawNodes: net.nodeCount } : { phases: 1, drawNodes: 0 };
     const res = Object.assign(await api('/api/run', { text: currentText(), engine }), meta);
-    const ov = $('overlay').value;
-    if (ov !== 'none') {    // the same circuit with the options forced off (plain) or on, drawn as a grey dashed line
-      const eng = engine === 'python' ? 'python' : 'cpp';
-      const r = await api('/api/run', { text: withOptions(currentText(), ov === 'cda'), engine: eng });
-      const run = r[eng];
-      res.overlay = run.error ? { error: run.error } : Object.assign({ label: ov === 'cda' ? 'with chatter removal & interpolation' : 'plain method (both off)' }, run);
-    }
     if ($('hold').checked) {           // compare with the held run; the first run while ticked becomes it
       if (held) res.overlay = held; else held = snapshot(res, currentText());
     }
@@ -1006,12 +994,6 @@ $('hold').addEventListener('change', () => {
   if (!$('hold').checked && results) delete results.overlay;
   renderResults();
 });
-
-// The netlist with chatter removal and switching interpolation both on or both off
-function withOptions(text, on) {
-  const lines = text.split('\n').filter((l) => !/^\s*\.options\b/i.test(l));
-  return '.options chatter=' + (on ? 'on' : 'off') + ' interp=' + (on ? 'on' : 'off') + '\n' + lines.join('\n');
-}
 
 function parseFilter(s, n) {
   s = (s || '').trim().toLowerCase();

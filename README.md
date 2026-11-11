@@ -386,7 +386,7 @@ write results.csv, events.csv (C++) / plot (Python)
 
 A fixed time step has two well-known problems with switching, described in Watson & Arrillaga's *Power Systems Electromagnetic Transients Simulation*, section 9.4. A switch time, a breaker's current zero or a diode's turn-off almost never falls on a time point, so the switching happens up to one step late and chops a non-zero current. And even when it does fall on a time point, the trapezoidal rule leaves a sustained step-by-step oscillation of the inductor voltages (or capacitor currents) around the true solution: numerical *chatter*. Chapter 8 of the [Tiny book](docs/book/TinyBookOfEMT.pdf) shows it.
 
-Both solvers handle this in the same way (`run_with_events()` in [`main.py`](main.py), `Network::runWithEvents` in [`src/network.cpp`](src/network.cpp)). Both are on by default. A circuit switches them off with a `.options chatter=off interp=off` line, a run with `--chatter=off --interp=off` on the command line (`run.bat`, `emtsim.exe`, `python main.py`), and the editor has a checkbox for each under Run settings:
+Both solvers handle this in the same way, in a module of their own ([`switching.py`](switching.py), [`src/switching.cpp`](src/switching.cpp)) whose two replaceable pieces are the state interpolation and the steps taken after a switching; [`docs/switching.md`](docs/switching.md) explains both methods and how to change them. Both are on by default. A circuit switches them off with a `.options chatter=off interp=off` line, a run with `--chatter=off --interp=off` on the command line (`run.bat`, `emtsim.exe`, `python main.py`), and the editor has a checkbox for each under Run settings:
 
 - **Interpolation** (`interp`): after each step, the earliest switching inside it is located: a switch time, the zero crossing of a breaker's current (or its chopping level), the voltage zero where a diode or thyristor turns on (with its gate fired) or the current zero where it turns off. The whole solution (node voltages and every element's state) is linearly interpolated back to that instant, the element switches there and $G$ is refactorised. Interpolation belongs with chatter removal: on its own, the trapezoidal step that follows the switching still lags by $\Delta t/2$ (see section 3f of the Tiny book), and only the backward-Euler half steps place the switching exactly. (The book's one-step spike when a GTO turns off between time points, its figure 9.5, does not occur in EMTSim even without interpolation, because the step is re-solved until the diodes and thyristors agree with it, so a free-wheeling diode turns on in the same step.)
 - **Chatter removal** (`chatter`), by *critical damping adjustment*: after every switching, the next two steps are backward-Euler half steps of $\Delta t/2$. With that step length backward Euler has exactly the trapezoidal conductances ($\Delta t/2L$, $2C/\Delta t$), so $G$ is not touched; only the history currents change (an inductor's becomes $i(t-\Delta t/2)$, without the voltage term), which is enough to stop the oscillation from starting.
@@ -410,6 +410,7 @@ Three small circuits in [`circuits/`](circuits), from Watson & Arrillaga's chapt
 | [`src/main.cpp`](src/main.cpp) | [`main.py`](main.py) | Runs the simulation loop |
 | [`src/circuit.cpp`](src/circuit.cpp) | [`dataloader.py`](dataloader.py) | The circuit to simulate: edit this |
 | [`src/network.h`](src/network.h), [`.cpp`](src/network.cpp) | [`emtcls.py`](emtcls.py) | `Network`: matrix assembly, partitioning and solution |
+| [`src/switching.h`](src/switching.h), [`.cpp`](src/switching.cpp) | [`switching.py`](switching.py) | Switching interpolation and chatter removal: the time loop, the interpolation and the steps after a switching ([docs/switching.md](docs/switching.md)) |
 | [`src/elements.h`](src/elements.h), [`.cpp`](src/elements.cpp) | [`elements.py`](elements.py) | Element models: `RLC`, `Source`, `Switch`, `Fault` |
 | [`src/config.h`](src/config.h) | [`config.py`](config.py) | Time step and simulation length |
 | [`src/circuit.h`](src/circuit.h) | | `Circuit` helper: `addR`, `addL`, `addC`, `addSource`, `addSwitch`, `addFault` |
@@ -424,7 +425,7 @@ Three small circuits in [`circuits/`](circuits), from Watson & Arrillaga's chapt
 | [`netlist.py`](netlist.py), [`src/netlist.cpp`](src/netlist.cpp) | Netlist file readers (Python, C++) |
 | [`gui.bat`](gui.bat), [`gui/`](gui) | Circuit editor: page, drawing-to-netlist logic and tests, local server, Python runner |
 | [`circuits/`](circuits) | Netlist files: `example8.net` (the 8-node example), `example3ph.net` (three-phase), `grid100.net` and `grid1000.net`, and their generators `make_example3ph.py`, `make_grid100.py` and `make_grid1000.py` |
-| [`docs/`](docs) | Logo (with `make_logo.py` to regenerate it) and the example network plot |
+| [`docs/`](docs) | [`switching.md`](docs/switching.md) (interpolation and chatter removal), the Tiny book, the logo (with `make_logo.py`) and the example network plot |
 
 ## Accuracy
 

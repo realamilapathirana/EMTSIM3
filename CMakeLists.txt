@@ -13,6 +13,7 @@ add_library(emtsim_core STATIC
   src/elements.cpp
   src/network.cpp
   src/netlist.cpp
+  src/switching.cpp
 )
 target_include_directories(emtsim_core PUBLIC src)
 if(MSVC)

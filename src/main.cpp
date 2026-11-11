@@ -6,6 +6,7 @@
 #include "config.h"
 #include "netlist.h"
 #include "network.h"
+#include "switching.h"
 
 // Re-solve a step at most this many times while non-linear elements change state
 constexpr int MAX_ITERATIONS = 50;
@@ -46,7 +47,7 @@ int main(int argc, char** argv) {
         EMTDC.refactor();
 
         if (config::chatter || config::interp) {
-            EMTDC.runWithEvents(MAX_ITERATIONS);
+            runWithEvents(EMTDC, MAX_ITERATIONS);
         } else {
             // plain trapezoidal loop; half a step of tolerance because Time accumulates round-off
             while (Time < config::stpTime - 0.5 * config::Dt) {

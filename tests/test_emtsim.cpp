@@ -15,6 +15,7 @@
 #include "linalg.h"
 #include "netlist.h"
 #include "network.h"
+#include "switching.h"
 
 #include <algorithm>
 #include <fstream>
@@ -370,8 +371,8 @@ void newElementTests() {
 
 // ---------------------------------------------------------------- chatter removal and switching interpolation
 
-// Run a netlist with the main program's time loop (Network::runWithEvents when chatter removal
-// or interpolation is on, the plain loop otherwise)
+// Run a netlist with the main program's time loop (runWithEvents when chatter removal or
+// interpolation is on, the plain loop otherwise)
 std::unique_ptr<Network> runMain(const std::string& text) {
     Circuit ckt = parseNetlist(text, "test");   // sets config from .tran / .options
     const int steps = static_cast<int>(std::lround((config::stpTime - config::srtTime) / config::Dt));
@@ -381,7 +382,7 @@ std::unique_ptr<Network> runMain(const std::string& text) {
     auto net = std::make_unique<Network>(std::move(ckt.elements), ckt.userNodes);
     net->updateSwitches(config::srtTime);
     net->refactor();
-    net->runWithEvents(50);
+    runWithEvents(*net, 50);
     std::cout.rdbuf(old);
     return net;
 }

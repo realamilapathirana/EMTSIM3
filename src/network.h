@@ -12,7 +12,8 @@
 // factorised with a sparse LDL^T (minimum-degree ordering, no pivoting), at the
 // start and again only when a switch operates or a non-linear element changes
 // state. Non-linear elements (diodes, arresters, saturation) are handled by
-// re-solving the step until their states agree with the solution.
+// re-solving the step until their states agree with the solution. The time loop
+// with switching interpolation and chatter removal is in switching.cpp.
 
 #include <memory>
 #include <string>
@@ -52,7 +53,7 @@ public:
     void load(const Vector& s);
     void solveStep(double t, Valves valves, int maxIterations);   // one step with the present switch states
     double detect(double a, double dt, bool interp, std::vector<Element*>& hits) const;   // < 0: none
-    void runWithEvents(int maxIterations);   // the time loop with both (config::chatter / config::interp)
+    const std::vector<Element*>& events() const { return events_; }   // switches, faults, diodes, thyristors
     int unconverged = 0;                 // steps where non-linear elements did not settle
 
     void writeResults(const std::string& path) const;   // time, V1..Vn as CSV

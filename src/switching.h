@@ -13,7 +13,8 @@ class Network;
 void interpolateState(const Vector& x, const Vector& y, double al, Vector& out);
 
 // Chatter removal: the steps to take right after a switching, each a fraction of Dt and the
-// integration rule for it. Critical damping adjustment is two backward-Euler half steps.
+// integration rule for it. Critical damping adjustment is two backward-Euler half steps. The
+// elements support exactly {1.0, false} and {0.5, true}, the two steps with equal conductances.
 struct Step {
     double fraction;   // of Dt
     bool euler;        // backward Euler (true) or trapezoidal (false)

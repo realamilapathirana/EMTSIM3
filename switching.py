@@ -13,7 +13,8 @@ def interpolate(x, y, al):
 
 def steps_after_switching():
     """Chatter removal: the steps to take right after a switching, each (fraction of Dt, backward
-    Euler?). Critical damping adjustment is two backward-Euler half steps."""
+    Euler?). Critical damping adjustment is two backward-Euler half steps. The elements support
+    exactly (1.0, False) and (0.5, True), the two steps with equal conductances; see docs/switching.md."""
     return [(0.5, True), (0.5, True)] if config.chatter else []
 
 

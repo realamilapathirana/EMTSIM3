@@ -99,10 +99,13 @@ closing between time points acts at its instant to the accuracy of the trapezoid
 
 To try another chatter-removal scheme, change `steps_after_switching()`: it returns the steps to
 take after a switching as `(fraction of Δt, backward Euler?)`. `[(0.5, True), (0.5, True)]` is
-CDA; `[(1.0, True)]` is one full backward-Euler step (more damping); `[]` is none. Fractions need
-not add up to 1: the loop interpolates back onto the output grid whatever the steps are. A
-backward-Euler step of a length other than Δt/2 would need its own conductances, i.e. a change to
-the elements' `stamp()` as well.
+CDA; `[]` is none; four half steps, or a half step followed by a trapezoidal step, are other
+valid lists. The loop itself accepts any list and interpolates back onto the output grid
+whatever the steps are, **but the elements only know two kinds of step**: the trapezoidal step
+of Δt, `(1.0, False)`, and the backward-Euler half step of Δt/2, `(0.5, True)` — the two whose
+conductances are equal, so *G* needs no rebuild. Any other length or rule needs matching
+changes to the elements' `stamp()` and history currents (a full backward-Euler step `(1.0, True)`
+with the present elements integrates as if it were a half step and does not remove the chatter).
 
 To try another interpolation, change `interpolate()` / `interpolateState()`. It receives the two
 state vectors and the fraction; anything that returns a state vector works (the loop never looks

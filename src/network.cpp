@@ -51,7 +51,6 @@ Network::Network(std::vector<std::unique_ptr<Element>> elements, int userNodes) 
         hist_.emplace_back(e->size(), 0.0);
         if (e->nonlinear()) nonlinear_.push_back(hist_.size() - 1);
         if (e->hasEvents()) events_.push_back(e.get());
-        if (e->valve()) hasValves_ = true;
         for (const auto& nm : e->currentNames()) currentNames_.push_back(nm);
     }
     Vn_.assign(numNodes_, 0.0);
@@ -164,7 +163,7 @@ bool Network::checkNonlinear(double t, Valves valves) {
 }
 
 void Network::resolve(double t) {
-    formG(); Gdivide(); LU();
+    refactor();
     calcBrnHistory(t); calcinjection(); Idivide(); calIUnew(); calcnewV(); reconstruct_V();
     ++resolves_;
 }
@@ -191,8 +190,11 @@ void Network::calcNewbranchI(double t) {
 // ---------------------------------------------------------------- chatter removal / interpolation
 
 Vector Network::save() const {
-    Vector out(Vn_);
+    Vector out;
+    out.reserve(stateSize_ ? stateSize_ : 4 * Vn_.size());
+    out.insert(out.end(), Vn_.begin(), Vn_.end());
     for (const auto& e : comp_list_) e->saveState(out);
+    stateSize_ = out.size();
     return out;
 }
 
@@ -229,105 +231,79 @@ double Network::detect(double a, double dt, bool interp, std::vector<Element*>& 
     return best;
 }
 
-// Time loop with switching interpolation and chatter removal (Watson & Arrillaga, section 9.4.1);
-// the same algorithm as run_with_events() in main.py.
-//
-// Interpolation: after a trapezoidal step, the earliest switching inside it (a switch time, a
-// breaker current zero, a diode or thyristor turning on or off) is found; the whole solution is
-// linearly interpolated back to that instant, the element switches there and G is refactorised.
-//
-// Chatter removal (critical damping adjustment): after every switching the next two steps are
-// backward-Euler half steps of Dt/2. They have the same conductances as the trapezoidal rule, so
-// G is not changed, but their history currents carry no voltage term, so the trapezoidal rule's
-// step-by-step oscillation of inductor voltages and capacitor currents never starts. Valves that
-// must turn on right after a switching (a free-wheeling diode taking over an inductor current)
-// do so in the first half step.
-//
-// The solution then runs on a time grid shifted by the switching instant; the next trapezoidal
-// step is interpolated back onto the regular grid, where the results are recorded. Grid points
-// passed during the half steps are recorded by interpolating (or extrapolating) between the two
-// half-step solutions, which are both after the switching.
+// Time loop with switching interpolation and chatter removal (Watson & Arrillaga 9.4.1); the same
+// algorithm as run_with_events() in main.py. After a step, the earliest switching inside it is found,
+// the state is interpolated back to that instant and the element switches there. After a switching
+// the next two steps are backward-Euler half steps (same G, no voltage term in the histories), which
+// stops the trapezoidal chatter; the step after them is interpolated back onto the regular grid.
 void Network::runWithEvents(int maxIterations) {
-    const double dt = config::Dt, t0 = config::srtTime, eps = 1e-6;
+    const double dt = config::Dt, t0 = config::srtTime, eps = 1e-6 * dt;
     const long nsteps = std::lround((config::stpTime - t0) / dt);
-    double a = t0;           // time of the present solution (not always on the grid)
-    long kRec = 0;           // grid points recorded so far
-    Vector P = save();       // last accepted solution point
-    double tP = a;
-    int beLeft = 0;          // backward-Euler half steps still to take after a switching
-    int stall = 0;           // switchings without progress in time
+    double a = t0, tP = t0;      // time of the present solution, and of P
+    long kRec = 0;
+    Vector P = save(), S, tmp;   // last accepted point, the new one, scratch
+    int beLeft = 0, stall = 0;
     std::vector<Element*> hits;
 
-    auto onGrid = [&](double t) { const double x = (t - t0) / dt; return std::fabs(x - std::round(x)) <= eps; };
-    auto lerp = [](const Vector& x, const Vector& y, double al) {
-        Vector r(x.size());
-        for (std::size_t i = 0; i < x.size(); ++i) r[i] = x[i] + al * (y[i] - x[i]);
-        return r;
+    auto lerp = [&](const Vector& x, const Vector& y, double al) -> Vector& {
+        tmp.resize(x.size());
+        for (std::size_t i = 0; i < x.size(); ++i) tmp[i] = x[i] + al * (y[i] - x[i]);
+        return tmp;
     };
-    auto recordTo = [&](const Vector& S, double tS) {   // the grid points up to tS, interpolating between P and S
+    auto recordTo = [&](double tS) {   // the grid points up to tS, from P and S
         while (kRec < nsteps) {
             const double tk = t0 + static_cast<double>(kRec + 1) * dt;
-            if (tk > tS + eps * dt) break;
+            if (tk > tS + eps) break;
             const double al = tS - tP <= 1e-12 * dt ? 1.0 : (tk - tP) / (tS - tP);
-            if (std::fabs(al - 1.0) <= 1e-12) {
-                recordv(tk);
-            } else {
-                load(lerp(P, S, al));
-                recordv(tk);
-                load(S);
-            }
+            const bool between = std::fabs(al - 1.0) > 1e-12;
+            if (between) load(lerp(P, S, al));
+            recordv(tk);
+            if (between) load(S);
             ++kRec;
         }
     };
+    auto accept = [&](double t) { recordTo(t); std::swap(P, S); tP = a = t; };
 
     while (kRec < nsteps) {
         const bool be = beLeft > 0;
-        const double h = be ? 0.5 * dt : dt;
+        const double h = be ? 0.5 * dt : dt, b = a + h;
         config::step = h;
         config::euler = be;
-        const double b = a + h;
         for (Element* e : events_) e->beginStep(a, b);
-        bool need = be || !onGrid(a) || hasValves_;
-        for (Element* e : events_) need = need || e->scheduledIn(a, b);
-        const Vector Sa = need ? save() : Vector();
-        const bool fallback = stall > 20;   // stuck switching back and forth: settle the valves within the step
+        const bool fallback = stall > 20;   // valves switching back and forth at one instant: let check() settle them
         solveStep(b, fallback ? AllValves : be ? TurnOnOnly : NoValves, maxIterations);
         const double best = fallback ? -1.0 : detect(a, h, config::interp, hits);
         if (fallback) stall = 0;
+        S = save();
         if (best < 0.0) {
             if (be) {
-                --beLeft;
-                const Vector S = save();
-                if (beLeft == 0) recordTo(S, b);   // second half step: the grid points passed since the switching
-                P = S; tP = b; a = b;
+                if (--beLeft) { std::swap(P, S); tP = a = b; }   // first half step: its grid points are recorded after the second
+                else accept(b);
                 continue;
             }
-            const double g = t0 + std::floor((b - t0) / dt + eps) * dt;   // last grid point <= b
-            if (a + eps * dt < g && g < b - eps * dt) {                  // off the grid: back onto it
-                load(lerp(Sa, save(), (g - a) / dt));
-                a = g;
+            const double g = t0 + std::floor((b - t0) / dt + 1e-6) * dt;   // last grid point <= b
+            if (a + eps < g && g < b - eps) {                                // off the grid: back onto it
+                S.swap(lerp(P, S, (g - a) / dt));
+                load(S);
+                accept(g);
             } else {
-                a = std::fabs(g - b) <= eps * dt ? g : b;
+                accept(std::fabs(g - b) <= eps ? g : b);
             }
-            const Vector S = save();
-            recordTo(S, a);
-            P = S; tP = a;
             continue;
         }
-        // a switching at te inside the step: interpolate back to it, switch, refactorise
-        const double te = a + best * h;
-        if (best < 1.0 - 1e-12) load(lerp(Sa, save(), best));
+        const double te = a + best * h;   // a switching inside the step
+        if (best < 1.0 - 1e-12) {
+            S.swap(lerp(P, S, best));
+            load(S);
+        }
         stall = best <= 1e-9 ? stall + 1 : 0;
-        const Vector S = save();
-        recordTo(S, te);
-        P = S; tP = te;
+        accept(te);
         bool changed = false;
         for (Element* e : hits) changed = e->applyEvent(te) || changed;
         if (changed) {
-            formG(); Gdivide(); LU();
+            refactor();
             if (config::chatter) beLeft = 2;
         }
-        a = te;
     }
     config::step = dt;
     config::euler = false;

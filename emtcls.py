@@ -163,9 +163,12 @@ class Network:
             changed = obj.check(TheTime, self._terminal_voltages(obj)) or changed
         return changed
 
+    def refactor(self):
+        self.formG(); self.Gdivide(); self.LU()
+
     def resolve(self, TheTime):
         '''Refactorise and solve the step again (after checkNonlinear).'''
-        self.formG(); self.Gdivide(); self.LU()
+        self.refactor()
         self.calcBrnHistory(TheTime); self.calcinjection(); self.Idivide(); self.calIUnew()
         self.calcnewV(); self.reconstruct_V()
         self.resolves += 1

@@ -24,18 +24,10 @@
 // terminals: knownTerminals() / knownVoltages(); the network then tells them the
 // current they deliver with setKnownCurrents().
 //
-// Chatter removal and switching interpolation (config::chatter / config::interp) need three
-// more things from every element:
-//   history() / check() / update() with config::euler set: a backward-Euler half step of Dt/2
-//                 (same conductances as the trapezoidal rule, no voltage term in the history
-//                 currents); config::step is the length of the step being taken
-//   saveState(out) / loadState(s, pos)
-//                 its continuous state (currents, voltages, fluxes, ...) as numbers, so the
-//                 network can interpolate the whole solution between two time points
-// and, from elements that switch (switches, faults, diodes, thyristors):
-//   beginStep(a, b)    remember the state at the start of a step a -> b
-//   eventAlpha(a, dt)  after the step: where in it (0..1) the element should have switched (< 0: not)
-//   applyEvent(t)      switch at time t                       -> true: g changed
+// Chatter removal and switching interpolation add: a backward-Euler half step when config::euler
+// is set (same conductances, no voltage term in the histories; config::step is the step length),
+// saveState/loadState for the continuous state, and for switching elements beginStep / eventAlpha
+// (where in the step, 0..1, it should have switched; < 0: not) / applyEvent.
 
 #include <complex>
 #include <optional>
@@ -76,7 +68,6 @@ public:
     virtual bool hasEvents() const { return false; }   // switches, faults, diodes, thyristors
     virtual bool valve() const { return false; }       // diodes and thyristors: switched by events, not check()
     virtual bool valveOn() const { return false; }     // a valve that is conducting
-    virtual bool scheduledIn(double a, double b) const { (void)a; (void)b; return false; }
     virtual void beginStep(double a, double b) { (void)a; (void)b; }
     virtual double eventAlpha(double a, double dt) const { (void)a; (void)dt; return -1.0; }
     virtual bool applyEvent(double t) { (void)t; return false; }
@@ -148,7 +139,6 @@ public:
     void update(double t, const Vector& v) override;
 
     bool hasEvents() const override { return true; }
-    bool scheduledIn(double a, double b) const override;
     void beginStep(double a, double b) override;
     double eventAlpha(double a, double dt) const override;
     bool applyEvent(double t) override;
@@ -161,7 +151,9 @@ public:
 
 protected:
     Switch(std::string type, int from, int to, bool closed, std::vector<double> t_switch, double Ron, double Roff);
-    void setState(bool c, double t);
+    double tol() const;                 // time tolerance for switch times
+    void setState(bool c, double t);    // switch, and forget any pending open command
+    void commandOpen(double t);         // wait for the next current zero
     virtual const char* label() const { return "switch"; }
     virtual const char* describe(bool isClosed) const { return isClosed ? "closed" : "opened"; }
     bool pending_open_ = false, zero_seen_ = false;

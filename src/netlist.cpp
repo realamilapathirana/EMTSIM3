@@ -41,6 +41,11 @@ std::string upper(std::string s) {
     return s;
 }
 
+std::string lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
 double toNumber(const std::string& s, const std::string& what) {
     try {
         std::size_t pos = 0;
@@ -304,12 +309,9 @@ Circuit parseNetlist(const std::string& text, const std::string& where) {
         if (upper(tok[0]) == ".OPTIONS") {
             for (std::size_t k = 1; k < tok.size(); ++k) {
                 const std::size_t eq = tok[k].find('=');
-                std::string key = tok[k].substr(0, eq), val = eq == std::string::npos ? "" : tok[k].substr(eq + 1);
-                for (auto* x : {&key, &val})
-                    std::transform(x->begin(), x->end(), x->begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-                const bool on = val == "on" || val == "1" || val == "true" || val == "yes";
-                const bool off = val == "off" || val == "0" || val == "false" || val == "no";
-                if ((key != "chatter" && key != "interp") || !(on || off))
+                const std::string key = lower(tok[k].substr(0, eq));
+                const int on = eq == std::string::npos ? -1 : parseOnOff(tok[k].substr(eq + 1));
+                if ((key != "chatter" && key != "interp") || on < 0)
                     throw std::runtime_error(s.where + ": use .options chatter=on|off interp=on|off");
                 (key == "chatter" ? config::chatter : config::interp) = on;
             }
@@ -334,8 +336,7 @@ Circuit parseNetlist(const std::string& text, const std::string& where) {
             for (std::size_t i = 1 + nt; i < tok.size(); ++i) {
                 const std::size_t eq = tok[i].find('=');
                 if (eq != std::string::npos) {
-                    std::string key = tok[i].substr(0, eq);
-                    std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    const std::string key = lower(tok[i].substr(0, eq));
                     s.kw[key] = toNumber(tok[i].substr(eq + 1), key);
                 } else if (tok[i] == "czero") {
                     s.flags.insert(tok[i]);
@@ -369,4 +370,11 @@ Circuit loadNetlist(const std::string& path) {
     std::ostringstream ss;
     ss << in.rdbuf();
     return parseNetlist(ss.str(), path);
+}
+
+int parseOnOff(const std::string& value) {
+    const std::string v = lower(value);
+    if (v == "on" || v == "1" || v == "true" || v == "yes") return 1;
+    if (v == "off" || v == "0" || v == "false" || v == "no") return 0;
+    return -1;
 }

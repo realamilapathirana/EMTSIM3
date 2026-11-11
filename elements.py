@@ -21,18 +21,10 @@ Ideal voltage sources (and machines' internal EMFs) fix the voltage of some
 terminals: known_terminals() / known_voltages(t); the network then tells them
 the current they deliver with set_known_currents().
 
-Chatter removal and switching interpolation (config.chatter / config.interp) need three
-more things from every element:
-    history() / check() / update() with config.euler set: a backward-Euler half step of
-                    Dt/2 (same conductances as the trapezoidal rule, no voltage term in the
-                    history currents); config.step is the length of the step being taken
-    save_state(out) / load_state(vals, pos)
-                    its continuous state (currents, voltages, fluxes, ...) as numbers, so the
-                    network can interpolate the whole solution between two time points
-and, from elements that switch (switches, faults, diodes, thyristors):
-    begin_step(a, b)      remember the state at the start of a step a -> b
-    event_alpha(a, dt)    after the step: where in it (0..1) the element should have switched
-    apply_event(t)        switch at time t                     -> True: g changed
+Chatter removal and switching interpolation add: a backward-Euler half step when config.euler
+is set (same conductances, no voltage term in the histories; config.step is the step length),
+save_state/load_state for the continuous state, and for switching elements begin_step /
+event_alpha (where in the step, 0..1, it should have switched; None: not) / apply_event.
 """
 import bisect
 import cmath
@@ -57,6 +49,10 @@ def _get(obj, name):
 def _set(obj, name, value):
     *path, last = name.split(".")
     setattr(functools.reduce(getattr, path, obj), last, value)
+
+
+def _frac(x):
+    return min(1.0, max(0.0, x))
 
 
 class Element:
@@ -129,9 +125,6 @@ class Element:
                 pos += 1
         return pos
 
-    def scheduled_in(self, a, b):  # True if a scheduled event may fall in (a, b]
-        return False
-
     def begin_step(self, a, b):
         pass
 
@@ -146,8 +139,6 @@ class Element:
 
 class TwoTerminal(Element):
     """i (from strnode to stpnode) = V / Reff + ihistory,  V = v[0] - v[1]"""
-
-    state_vars = ("Ilast", "Vlast")
 
     def __init__(self, type_, strnode, stpnode):
         super().__init__(type_, [strnode, stpnode])
@@ -185,6 +176,14 @@ class TwoTerminal(Element):
 
     def currents(self):
         return [self.Ilast]
+
+    def save_state(self, out):
+        out.append(self.Ilast)
+        out.append(self.Vlast)
+
+    def load_state(self, vals, pos):
+        self.Ilast, self.Vlast = vals[pos], vals[pos + 1]
+        return pos + 2
 
 
 class RLC(TwoTerminal):
@@ -284,11 +283,12 @@ class Switch(TwoTerminal):
 
     has_events = True
 
+    @staticmethod
+    def _tol():                # time accumulates round-off, so switch times are matched with a tolerance
+        return 1e-6*config.Dt
+
     def state_at(self, TheTime):
-        # Small tolerance: time is accumulated as Time += Dt, so e.g. 200*Dt can land
-        # just below 0.02 and the switch would otherwise operate one step late.
-        tol = 1e-6*config.Dt
-        n = sum(1 for ts in self.t_switch if TheTime >= ts - tol)
+        n = sum(1 for ts in self.t_switch if TheTime >= ts - self._tol())
         return self.closed0 != (n % 2 == 1)
 
     def describe(self, closed):
@@ -297,10 +297,16 @@ class Switch(TwoTerminal):
     def label(self):
         return "switch"
 
-    def _set_state(self, closed, t):
+    def _set_state(self, closed, t):   # switch, and forget any pending open command
         self.closed = closed
         self.Reff = self.Ron if closed else self.Roff
+        self._pending_open = self._zero_seen = False
         print("t = %.5f s: %s %s (nodes %d-%d)" % (t, self.label(), self.describe(closed), self.nodes[0], self.nodes[1]))
+
+    def _command_open(self, t):        # wait for the next current zero
+        self._pending_open, self._zero_seen, self._t_cmd = True, False, t
+        print("t = %.5f s: %s open command (nodes %d-%d), waiting for current zero"
+              % (t, self.label(), self.nodes[0], self.nodes[1]))
 
     def time_event(self, t):
         want = self.state_at(t)
@@ -308,27 +314,15 @@ class Switch(TwoTerminal):
             if want:
                 self._pending_open = False
             return False
-        if want:                                     # closing is immediate
-            self._set_state(True, t)
-            self._pending_open = self._zero_seen = False
+        if want or not self.opens_at_current_zero:   # closing is immediate; so is opening without current-zero detection
+            self._set_state(want, t)
             return True
-        if not self.opens_at_current_zero:
-            self._set_state(False, t)
-            return True
-        if not self._pending_open:                   # open command: wait for the next current zero
-            self._pending_open = True
-            self._zero_seen = False
-            print("t = %.5f s: %s open command (nodes %d-%d), waiting for current zero"
-                  % (t, self.label(), self.nodes[0], self.nodes[1]))
-        if self._zero_seen:
-            self._set_state(False, t)
-            self._pending_open = self._zero_seen = False
-            return True
-        return False
-
-    # kept for code written against the earlier single-method interface
-    def update_state(self, TheTime):
-        return self.time_event(TheTime)
+        if not self._pending_open:
+            self._command_open(t)
+        if not self._zero_seen:
+            return False
+        self._set_state(False, t)
+        return True
 
     def update(self, t, v):
         iprev = self.Ilast
@@ -337,32 +331,24 @@ class Switch(TwoTerminal):
             self._zero_seen = True
 
     # ---- events (chatter removal / interpolation)
-    def scheduled_in(self, a, b):
-        tol = 1e-6*config.Dt
-        return self._pending_open or any(a + tol < ts <= b + tol for ts in self.t_switch)
-
     def begin_step(self, a, b):
         self._ia = self.Ilast
         if not self.opens_at_current_zero:
             return
         want = self.state_at(b)
-        if self.closed and not want and not self._pending_open:   # open command: wait for a current zero
-            self._pending_open = True
-            tol = 1e-6*config.Dt
-            self._t_cmd = max([a] + [ts for ts in self.t_switch if ts <= b + tol])
-            print("t = %.5f s: %s open command (nodes %d-%d), waiting for current zero"
-                  % (self._t_cmd, self.label(), self.nodes[0], self.nodes[1]))
+        if self.closed and not want and not self._pending_open:
+            self._command_open(max([a] + [ts for ts in self.t_switch if ts <= b + self._tol()]))
         elif want and self._pending_open:
             self._pending_open = False
 
     def event_alpha(self, a, dt):
-        tol = 1e-6*dt
+        tol = self._tol()
         best = None
         for ts in self.t_switch:                     # scheduled closing / opening
             if a + tol < ts <= a + dt + tol:
                 want = self.state_at(ts)
                 if want != self.closed and (want or not self.opens_at_current_zero):
-                    best = min(1.0, max(0.0, (ts - a)/dt))
+                    best = _frac((ts - a)/dt)
                     break
         if self._pending_open and self.closed:       # breaker: current zero (or chopping level)
             ia, ib = self._ia, self.Ilast
@@ -375,21 +361,16 @@ class Switch(TwoTerminal):
                 ac = 0.0 if abs(ia) <= self.chop else (abs(ia) - self.chop)/(abs(ia) - abs(ib))
                 al = ac if al is None else min(al, ac)
             if al is not None:
-                al = min(1.0, max(al, (self._t_cmd - a)/dt, 0.0))
+                al = _frac(max(al, (self._t_cmd - a)/dt))
                 best = al if best is None else min(best, al)
         return best
 
     def apply_event(self, t):
         want = self.state_at(t)
-        if want and not self.closed:
-            self._set_state(True, t)
-            self._pending_open = self._zero_seen = False
-            return True
-        if not want and self.closed and (not self.opens_at_current_zero or self._pending_open):
-            self._set_state(False, t)
-            self._pending_open = self._zero_seen = False
-            return True
-        return False
+        if want == self.closed or (not want and self.opens_at_current_zero and not self._pending_open):
+            return False
+        self._set_state(want, t)
+        return True
 
 
 class Fault(Switch):
@@ -616,17 +597,18 @@ class BergeronLine(Element):
         out.extend(self.im_phase.tolist())
 
     def load_state(self, vals, pos):
+        # keep k samples, then the stored sample becomes the newest: appended if the count is fractional
+        # (a state interpolated between two time points), otherwise it replaces sample k-1
         c = vals[pos]
         k = int(math.floor(c + 1e-9))
-        lists = [self.ts] + self.vk + self.ik + self.vm + self.im
-        for x in lists:
-            del x[k:]
-        if c - k > 1e-9:
-            self.ts.append(vals[pos + 1])
-            for j in range(self.M):
-                q = pos + 2 + 4*j
-                self.vk[j].append(vals[q]); self.ik[j].append(vals[q + 1])
-                self.vm[j].append(vals[q + 2]); self.im[j].append(vals[q + 3])
+        keep = k if c - k > 1e-9 else k - 1
+        for x in [self.ts] + self.vk + self.ik + self.vm + self.im:
+            del x[keep:]
+        self.ts.append(vals[pos + 1])
+        for j in range(self.M):
+            q = pos + 2 + 4*j
+            self.vk[j].append(vals[q]); self.ik[j].append(vals[q + 1])
+            self.vm[j].append(vals[q + 2]); self.im[j].append(vals[q + 3])
         pos += 2 + 4*self.M
         self.ik_phase = np.array(vals[pos:pos + self.M], dtype=float)
         self.im_phase = np.array(vals[pos + self.M:pos + 2*self.M], dtype=float)
@@ -887,14 +869,14 @@ class Diode(Element):
                     else:
                         lo = mid
                 al = (hi - a)/dt
-            return min(1.0, max(0.0, al))
+            return _frac(al)
         ib = self.i
         if ib >= 0.0:
             return None
         ia = self._ia
         if ia <= 0.0:
             return 0.0
-        return min(1.0, max(0.0, ia/(ia - ib)))
+        return _frac(ia/(ia - ib))
 
     def apply_event(self, t):
         self.on = not self.on

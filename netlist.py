@@ -239,6 +239,12 @@ def _build(kind, name, n, args, kw, flags, b):
         raise ValueError("unknown element type '%s'" % kind)
 
 
+def parse_on_off(value):
+    """on/1/true/yes -> True, off/0/false/no -> False, otherwise None"""
+    v = value.lower()
+    return True if v in ("on", "1", "true", "yes") else False if v in ("off", "0", "false", "no") else None
+
+
 def parse(text, where="netlist"):
     statements, max_node = [], 0
     # time step and stop time: defaults unless the netlist has a ".tran dt tstop" line
@@ -266,10 +272,10 @@ def parse(text, where="netlist"):
         if tok[0].upper() == ".OPTIONS":
             for kv in tok[1:]:
                 key, _, val = kv.partition("=")
-                key, val = key.lower(), val.lower()
-                if key not in ("chatter", "interp") or val not in ("on", "off", "1", "0", "true", "false", "yes", "no"):
+                on = parse_on_off(val)
+                if key.lower() not in ("chatter", "interp") or on is None:
                     raise ValueError("%s: use .options chatter=on|off interp=on|off" % loc)
-                setattr(config, key, val in ("on", "1", "true", "yes"))
+                setattr(config, key.lower(), on)
             continue
         cw = comment.split()
         name = cw[0].rstrip(",;:") if cw else ""

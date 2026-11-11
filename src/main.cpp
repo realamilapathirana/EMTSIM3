@@ -7,18 +7,8 @@
 #include "netlist.h"
 #include "network.h"
 
-// Form the conductance matrix, divide it into GUU, GUK, GKU, GKK and
-// LU-decompose GUU. Only needed at the start and when a switch/fault or a
-// non-linear element changes state, because G is constant otherwise.
-static void refactor(Network& EMTDC) {
-    EMTDC.formG();
-    EMTDC.Gdivide();
-    EMTDC.LU();
-}
-
 // Re-solve a step at most this many times while non-linear elements change state
 constexpr int MAX_ITERATIONS = 50;
-
 
 // Usage:  emtsim                         -> circuit in circuit.cpp
 //         emtsim circuits/grid100.net    -> circuit from a netlist file
@@ -31,9 +21,10 @@ int main(int argc, char** argv) {
         for (int k = 1; k < argc; ++k) {
             const std::string arg = argv[k];
             const std::size_t eq = arg.find('=');
-            const std::string key = arg.substr(0, eq), val = eq == std::string::npos ? "" : arg.substr(eq + 1);
-            if ((key == "--chatter" || key == "--interp") && (val == "on" || val == "off"))
-                (key == "--chatter" ? chatter : interp) = val == "on";
+            const std::string key = arg.substr(0, eq);
+            const int on = eq == std::string::npos ? -1 : parseOnOff(arg.substr(eq + 1));
+            if ((key == "--chatter" || key == "--interp") && on >= 0)
+                (key == "--chatter" ? chatter : interp) = on;
             else if (!arg.empty() && arg[0] == '-')
                 throw std::runtime_error("usage: emtsim [netlist.net] [--chatter=on|off] [--interp=on|off]");
             else
@@ -51,49 +42,21 @@ int main(int argc, char** argv) {
         std::cout << "Chatter removal " << (config::chatter ? "on" : "off") << ", switching interpolation "
                   << (config::interp ? "on" : "off") << "\n\n";
         Network EMTDC(std::move(ckt.elements), ckt.userNodes);
-        // Set the initial switch/fault states and factorise G
-        EMTDC.updateSwitches(Time);
-        refactor(EMTDC);
-        int unconverged = 0;
+        EMTDC.updateSwitches(Time);   // initial switch/fault states
+        EMTDC.refactor();
 
-        // Enter the main time loop
-        // half a step of tolerance: Time is accumulated as Time += Dt and can land just below stpTime
         if (config::chatter || config::interp) {
-            EMTDC.runWithEvents(MAX_ITERATIONS);   // switching interpolation and chatter removal
-            unconverged = EMTDC.unconverged;
-        }
-        while (!(config::chatter || config::interp) && Time < config::stpTime - 0.5 * config::Dt) {
-            // Divide node voltage vector into VU and VK
-            EMTDC.Vdivide();
-            // Advance one time step
-            Time = Time + config::Dt;
-            // Apply/clear faults; rebuild G if anything switched
-            if (EMTDC.updateSwitches(Time)) refactor(EMTDC);
-            // Update the voltage sources
-            EMTDC.Vkupdate(Time);
-            // Calculate the history current of each branch
-            EMTDC.calcBrnHistory(Time);
-            // Calculate the current injection at each node
-            EMTDC.calcinjection();
-            // Divide IH in to IU and IK
-            EMTDC.Idivide();
-            // Calculate new IU
-            EMTDC.calIUnew();
-            // Calculate new VU
-            EMTDC.calcnewV();
-            // Reconstruct node voltage vector
-            EMTDC.reconstruct_V();
-            // Non-linear elements (diodes, arresters, saturation): re-solve until their states agree
-            int it = 0;
-            while (EMTDC.checkNonlinear(Time)) {
-                if (++it > MAX_ITERATIONS) { ++unconverged; break; }
-                EMTDC.resolve(Time);
+            EMTDC.runWithEvents(MAX_ITERATIONS);
+        } else {
+            // plain trapezoidal loop; half a step of tolerance because Time accumulates round-off
+            while (Time < config::stpTime - 0.5 * config::Dt) {
+                Time += config::Dt;
+                if (EMTDC.updateSwitches(Time)) EMTDC.refactor();
+                EMTDC.solveStep(Time, Network::AllValves, MAX_ITERATIONS);
+                EMTDC.recordv(Time);
             }
-            // Calculate branch currents of each element
-            EMTDC.calcNewbranchI(Time);
-            // Record the voltages of all nodes
-            EMTDC.recordv(Time);
         }
+        const int unconverged = EMTDC.unconverged;
 
         // Setup + time loop, excluding writing the results
         const double simMs =

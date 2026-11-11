@@ -55,17 +55,12 @@ std::unique_ptr<Network> runNetwork(Circuit ckt, int steps = 1000) {
     auto* old = std::cout.rdbuf(quiet.rdbuf());   // silence matrix printing
     auto net = std::make_unique<Network>(std::move(ckt.elements), ckt.userNodes);
     double t = config::srtTime;
-    auto refactor = [&] { net->formG(); net->Gdivide(); net->LU(); };
     net->updateSwitches(t);
-    refactor();
+    net->refactor();
     for (int s = 0; s < steps; ++s) {
-        net->Vdivide();
         t += config::Dt;
-        if (net->updateSwitches(t)) refactor();
-        net->Vkupdate(t); net->calcBrnHistory(t); net->calcinjection(); net->Idivide();
-        net->calIUnew(); net->calcnewV(); net->reconstruct_V();
-        for (int it = 0; it < 50 && net->checkNonlinear(t); ++it) net->resolve(t);
-        net->calcNewbranchI(t);
+        if (net->updateSwitches(t)) net->refactor();
+        net->solveStep(t, Network::AllValves, 50);
         net->recordv(t);
     }
     std::cout.rdbuf(old);
@@ -378,27 +373,15 @@ void newElementTests() {
 // Run a netlist with the main program's time loop (Network::runWithEvents when chatter removal
 // or interpolation is on, the plain loop otherwise)
 std::unique_ptr<Network> runMain(const std::string& text) {
+    Circuit ckt = parseNetlist(text, "test");   // sets config from .tran / .options
+    const int steps = static_cast<int>(std::lround((config::stpTime - config::srtTime) / config::Dt));
+    if (!(config::chatter || config::interp)) return runNetwork(std::move(ckt), steps);
     std::ostringstream sink;
     auto* old = std::cout.rdbuf(sink.rdbuf());
-    auto net = std::make_unique<Network>(parseNetlist(text, "test").elements);
+    auto net = std::make_unique<Network>(std::move(ckt.elements), ckt.userNodes);
     net->updateSwitches(config::srtTime);
-    net->formG(); net->Gdivide(); net->LU();
-    if (config::chatter || config::interp) {
-        net->runWithEvents(50);
-    } else {
-        double t = config::srtTime;
-        const int steps = static_cast<int>(std::lround((config::stpTime - config::srtTime) / config::Dt));
-        for (int s = 0; s < steps; ++s) {
-            net->Vdivide();
-            t += config::Dt;
-            if (net->updateSwitches(t)) { net->formG(); net->Gdivide(); net->LU(); }
-            net->Vkupdate(t); net->calcBrnHistory(t); net->calcinjection(); net->Idivide();
-            net->calIUnew(); net->calcnewV(); net->reconstruct_V();
-            for (int it = 0; it < 50 && net->checkNonlinear(t); ++it) net->resolve(t);
-            net->calcNewbranchI(t);
-            net->recordv(t);
-        }
-    }
+    net->refactor();
+    net->runWithEvents(50);
     std::cout.rdbuf(old);
     return net;
 }

@@ -32,6 +32,7 @@ public:
     void formG();            // assemble the conductance matrix
     void Gdivide();          // split G into G_UU, G_UK, G_KU, G_KK
     void LU();               // factorise G_UU (sparse LDL^T)
+    void refactor() { formG(); Gdivide(); LU(); }
     void Vdivide();          // split node voltages into V_U, V_K
     void Vkupdate(double t); // known node voltages V_K (ideal sources, machine EMFs)
     void calcBrnHistory(double t);   // history currents of every element
@@ -51,11 +52,8 @@ public:
     void load(const Vector& s);
     void solveStep(double t, Valves valves, int maxIterations);   // one step with the present switch states
     double detect(double a, double dt, bool interp, std::vector<Element*>& hits) const;   // < 0: none
-    const std::vector<Element*>& events() const { return events_; }
-    bool hasValves() const { return hasValves_; }
+    void runWithEvents(int maxIterations);   // the time loop with both (config::chatter / config::interp)
     int unconverged = 0;                 // steps where non-linear elements did not settle
-    // the time loop with switching interpolation and chatter removal (config::chatter / config::interp)
-    void runWithEvents(int maxIterations);
 
     void writeResults(const std::string& path) const;   // time, V1..Vn as CSV
     void writeCurrents(const std::string& path) const;  // time, branch currents as CSV
@@ -90,7 +88,7 @@ private:
     std::vector<std::vector<int>> knownIdx_;    // per element: indices into V_K of its known terminals
     std::vector<std::size_t> nonlinear_;        // elements whose state can change with the solution
     std::vector<Element*> events_;              // switches, faults, diodes, thyristors
-    bool hasValves_ = false;
+    mutable std::size_t stateSize_ = 0;         // length of save()'s vector, once known
     Vector vbuf_;                               // terminal voltages of one element
 
     std::vector<double> time_;

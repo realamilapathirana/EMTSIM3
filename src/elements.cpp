@@ -118,18 +118,26 @@ Switch::Switch(std::string type, int from, int to, bool closed, std::vector<doub
     Reff = closed ? Ron : Roff;
 }
 
+// Time accumulates round-off, so a switch time is matched with a small tolerance
+double Switch::tol() const { return 1e-6 * config::Dt; }
+
 bool Switch::stateAt(double t) const {
-    // Small tolerance: time is accumulated as Time += Dt, so e.g. 200*Dt can land
-    // just below 0.02 and the switch would otherwise operate one step late.
-    const double tol = 1e-6 * config::Dt;
-    const auto n = std::count_if(t_switch.begin(), t_switch.end(), [&](double ts) { return t >= ts - tol; });
+    const auto n = std::count_if(t_switch.begin(), t_switch.end(), [&](double ts) { return t >= ts - tol(); });
     return closed0 != (n % 2 == 1);
 }
 
 void Switch::setState(bool c, double t) {
     closed = c;
     Reff = closed ? Ron : Roff;
+    pending_open_ = zero_seen_ = false;
     std::printf("t = %.5f s: %s %s (nodes %d-%d)\n", t, label(), describe(closed), nodes[0], nodes[1]);
+}
+
+void Switch::commandOpen(double t) {
+    pending_open_ = true;
+    zero_seen_ = false;
+    t_cmd_ = t;
+    std::printf("t = %.5f s: %s open command (nodes %d-%d), waiting for current zero\n", t, label(), nodes[0], nodes[1]);
 }
 
 bool Switch::timeEvent(double t) {
@@ -138,26 +146,14 @@ bool Switch::timeEvent(double t) {
         if (want) pending_open_ = false;
         return false;
     }
-    if (want) {                                   // closing is immediate
-        setState(true, t);
-        pending_open_ = zero_seen_ = false;
+    if (want || !opens_at_current_zero) {   // closing is immediate; so is opening without current-zero detection
+        setState(want, t);
         return true;
     }
-    if (!opens_at_current_zero) {
-        setState(false, t);
-        return true;
-    }
-    if (!pending_open_) {                         // open command: wait for the next current zero
-        pending_open_ = true;
-        zero_seen_ = false;
-        std::printf("t = %.5f s: %s open command (nodes %d-%d), waiting for current zero\n", t, label(), nodes[0], nodes[1]);
-    }
-    if (zero_seen_) {
-        setState(false, t);
-        pending_open_ = zero_seen_ = false;
-        return true;
-    }
-    return false;
+    if (!pending_open_) commandOpen(t);
+    if (!zero_seen_) return false;
+    setState(false, t);
+    return true;
 }
 
 void Switch::update(double t, const Vector& v) {
@@ -167,39 +163,27 @@ void Switch::update(double t, const Vector& v) {
 }
 
 // ---- events (chatter removal / interpolation)
-bool Switch::scheduledIn(double a, double b) const {
-    const double tol = 1e-6 * config::Dt;
-    if (pending_open_) return true;
-    for (double ts : t_switch)
-        if (a + tol < ts && ts <= b + tol) return true;
-    return false;
-}
-
 void Switch::beginStep(double a, double b) {
     ia_ = Ilast;
     if (!opens_at_current_zero) return;
     const bool want = stateAt(b);
-    if (closed && !want && !pending_open_) {      // open command: wait for a current zero
-        pending_open_ = true;
-        const double tol = 1e-6 * config::Dt;
-        t_cmd_ = a;
+    if (closed && !want && !pending_open_) {
+        double tc = a;   // the command time: the latest switch time up to b
         for (double ts : t_switch)
-            if (ts <= b + tol) t_cmd_ = std::max(t_cmd_, ts);
-        std::printf("t = %.5f s: %s open command (nodes %d-%d), waiting for current zero\n", t_cmd_, label(), nodes[0],
-                    nodes[1]);
+            if (ts <= b + tol()) tc = std::max(tc, ts);
+        commandOpen(tc);
     } else if (want && pending_open_) {
         pending_open_ = false;
     }
 }
 
 double Switch::eventAlpha(double a, double dt) const {
-    const double tol = 1e-6 * dt;
     double best = -1.0;
     for (double ts : t_switch)                     // scheduled closing / opening
-        if (a + tol < ts && ts <= a + dt + tol) {
+        if (a + tol() < ts && ts <= a + dt + tol()) {
             const bool want = stateAt(ts);
             if (want != closed && (want || !opens_at_current_zero)) {
-                best = std::min(1.0, std::max(0.0, (ts - a) / dt));
+                best = std::clamp((ts - a) / dt, 0.0, 1.0);
                 break;
             }
         }
@@ -213,7 +197,7 @@ double Switch::eventAlpha(double a, double dt) const {
             al = al < 0.0 ? ac : std::min(al, ac);
         }
         if (al >= 0.0) {
-            al = std::min(1.0, std::max({al, (t_cmd_ - a) / dt, 0.0}));
+            al = std::clamp(std::max(al, (t_cmd_ - a) / dt), 0.0, 1.0);
             best = best < 0.0 ? al : std::min(best, al);
         }
     }
@@ -222,17 +206,9 @@ double Switch::eventAlpha(double a, double dt) const {
 
 bool Switch::applyEvent(double t) {
     const bool want = stateAt(t);
-    if (want && !closed) {
-        setState(true, t);
-        pending_open_ = zero_seen_ = false;
-        return true;
-    }
-    if (!want && closed && (!opens_at_current_zero || pending_open_)) {
-        setState(false, t);
-        pending_open_ = zero_seen_ = false;
-        return true;
-    }
-    return false;
+    if (want == closed || (!want && opens_at_current_zero && !pending_open_)) return false;
+    setState(want, t);
+    return true;
 }
 
 // ---------------------------------------------------------------- Fault
@@ -259,11 +235,7 @@ Matrix sequenceMatrix(double X1, double X0) {
 
 RLBlock::RLBlock(const Matrix& R, const Matrix& L)
     : n(R.rows()), A(inverse(R + (2.0 / config::Dt) * L)), B((2.0 / config::Dt) * L + (-1.0) * R),
-      vprev(R.rows(), 0.0), iprev(R.rows(), 0.0), ih(R.rows(), 0.0) {
-    L2 = L;
-    for (std::size_t i = 0; i < n; ++i)
-        for (std::size_t j = 0; j < n; ++j) L2(i, j) = 2.0 * L(i, j) / config::Dt;
-}
+      L2((2.0 / config::Dt) * L), vprev(R.rows(), 0.0), iprev(R.rows(), 0.0), ih(R.rows(), 0.0) {}
 
 void RLBlock::stamp(Matrix& g, const std::vector<int>& from, const std::vector<int>& to) const {
     for (std::size_t i = 0; i < n; ++i)
@@ -463,16 +435,17 @@ void BergeronLine::saveState(Vector& out) const {
 std::size_t BergeronLine::loadState(const Vector& s, std::size_t pos) {
     const double c = s[pos];
     const std::size_t k = static_cast<std::size_t>(std::floor(c + 1e-9));
-    ts_.resize(std::min(k, ts_.size()));
+    // keep k samples, then the stored sample becomes the newest: appended if the count is fractional
+    // (a state interpolated between two time points), otherwise it replaces sample k-1
+    const std::size_t keep = c - static_cast<double>(k) > 1e-9 ? k : k - 1;
+    ts_.resize(keep);
     for (std::size_t j = 0; j < M_; ++j)
-        for (auto* x : {&vk_[j], &ik_[j], &vm_[j], &im_[j]}) x->resize(std::min(k, x->size()));
-    if (c - static_cast<double>(k) > 1e-9) {
-        ts_.push_back(s[pos + 1]);
-        for (std::size_t j = 0; j < M_; ++j) {
-            const std::size_t q = pos + 2 + 4 * j;
-            vk_[j].push_back(s[q]); ik_[j].push_back(s[q + 1]);
-            vm_[j].push_back(s[q + 2]); im_[j].push_back(s[q + 3]);
-        }
+        for (auto* x : {&vk_[j], &ik_[j], &vm_[j], &im_[j]}) x->resize(keep);
+    ts_.push_back(s[pos + 1]);
+    for (std::size_t j = 0; j < M_; ++j) {
+        const std::size_t q = pos + 2 + 4 * j;
+        vk_[j].push_back(s[q]); ik_[j].push_back(s[q + 1]);
+        vm_[j].push_back(s[q + 2]); im_[j].push_back(s[q + 3]);
     }
     pos += 2 + 4 * M_;
     pos = readAll(ikPhase_, s, pos);
@@ -695,13 +668,13 @@ double Diode::eventAlpha(double a, double dt) const {
             }
             al = (hi - a) / dt;
         }
-        return std::min(1.0, std::max(0.0, al));
+        return std::clamp(al, 0.0, 1.0);
     }
     const double ib = i_;
     if (ib >= 0.0) return -1.0;
     const double ia = ia_;
     if (ia <= 0.0) return 0.0;
-    return std::min(1.0, std::max(0.0, ia / (ia - ib)));
+    return std::clamp(ia / (ia - ib), 0.0, 1.0);
 }
 
 Thyristor::Thyristor(int anode, int cathode, double alpha_deg, double frequency, double ref_deg, double width_deg,

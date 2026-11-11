@@ -952,7 +952,7 @@ async function run() {
     const meta = raw == null ? { phases: net.phases, drawNodes: net.nodeCount } : { phases: 1, drawNodes: 0 };
     const res = Object.assign(await api('/api/run', { text: currentText(), engine }), meta);
     if ($('hold').checked) {           // compare with the held run; the first run while ticked becomes it
-      if (held) res.overlay = held; else held = snapshot(res, currentText());
+      if (held) res.overlay = held; else held = snapshot(res);
     }
     results = res;
     if (!$('hold').checked) plotZoom = null;
@@ -972,16 +972,20 @@ $('btnRun').onclick = run;
 
 // Hold run: the reference a later run is compared with (the grey dashed overlay)
 let held = null;
-function optionsOf(text) {        // chatter / interp states of a netlist, as in its .options line (default on)
+function currentOptions() {       // chatter / interp states: the drawing's settings, or a raw netlist's .options line
   const st = { chatter: 'on', interp: 'on' };
-  for (const m of text.matchAll(/^\s*\.options\s+(.*)$/gim))
-    for (const kv of m[1].split(/\s+/)) { const [k, v] = kv.split('='); if (k in st && v) st[k] = /^(on|1|true|yes)$/i.test(v) ? 'on' : 'off'; }
+  if (raw == null) {
+    for (const k in st) if ((model.settings || {})[k] === 'off') st[k] = 'off';
+  } else {
+    for (const m of raw.matchAll(/^\s*\.options\s+(.*)$/gim))
+      for (const kv of m[1].split(/\s+/)) { const [k, v] = kv.split('='); if (k in st && v) st[k] = /^(on|1|true|yes)$/i.test(v) ? 'on' : 'off'; }
+  }
   return st;
 }
-function snapshot(res, text) {
+function snapshot(res) {
   const run = res.cpp && !res.cpp.error ? res.cpp : res.python && !res.python.error ? res.python : null;
   if (!run) return null;
-  const o = optionsOf(text);
+  const o = currentOptions();
   return Object.assign({ label: 'held run: ' + (run === res.cpp ? 'C++' : 'Python') + ', chatter ' + o.chatter + ', interp ' + o.interp }, run);
 }
 function holdChip() {
@@ -990,7 +994,7 @@ function holdChip() {
                                                                   : 'the next run will be held') + '</span>';
 }
 $('hold').addEventListener('change', () => {
-  held = $('hold').checked && results ? snapshot(results, currentText()) : null;
+  held = $('hold').checked && results ? snapshot(results) : null;
   if (!$('hold').checked && results) delete results.overlay;
   renderResults();
 });
@@ -1018,6 +1022,13 @@ function fmtNum(v) {
 }
 
 const PHASE_COLORS = ['#D64545', '#E0A020', '#2F6FD6'];   // phases a, b, c
+// One signal (column j of key 'V' or 'I') as plot series: C++ solid, Python dark dashed over it (or orange
+// on its own); the held run's series are appended last by the caller
+function pushSeries(series, key, j, cpp, py, color) {
+  if (cpp && cpp[key]) series.push({ v: cpp[key][j], color: color || '#21A99B', width: py ? 2 : 1.3 });
+  if (py && py[key]) series.push(cpp ? { v: py[key][j], color: '#1F2537', width: 1, dash: [3, 3] } : { v: py[key][j], color: color || '#E8833A', width: 1.3 });
+}
+const heldSeries = (v) => ({ v, color: '#8A8F98', width: 1.2, dash: [6, 4] });
 const BIG_BUTTON = '<button class="big" title="Enlarge this plot">⤢</button>';
 const ZOOM_CHIP = '<span class="chip" id="zoomChip" style="display:none;background:#E3F4F2">zoom <b></b> ' +
                   '<button class="lnk" onclick="setZoom(null)">Reset zoom</button></span>' +
@@ -1075,10 +1086,9 @@ function renderResults() {
     const series = [];
     cols.forEach((j, p) => {
       const color = three ? PHASE_COLORS[p] : null;
-      if (cpp) series.push({ v: cpp.V[j], color: color || '#21A99B', width: cpp && py ? 2 : 1.3 });
-      if (py) series.push(cpp ? { v: py.V[j], color: '#1F2537', width: 1, dash: [3, 3] } : { v: py.V[j], color: color || '#E8833A', width: 1.3 });
+      pushSeries(series, 'V', j, cpp, py, color);
     });
-    if (ov) cols.forEach((j) => series.push({ v: ov.run.V[j], color: '#8A8F98', width: 1.2, dash: [6, 4] }));
+    if (ov) cols.forEach((j) => series.push(heldSeries(ov.run.V[j])));
     const item = { t: main.t, series, events: main.events, hover: null,
                    labels: three ? S.PH.map((p, j) => ({ name: p, s: series[j * (cpp && py ? 2 : 1)] })) : null };
     attachPlot(card, cv, item);
@@ -1140,10 +1150,9 @@ function renderCurrents(cpp, py, main, sum, box) {
     const series = [];
     g.cols.forEach((j, p) => {
       const color = g.cols.length === 3 ? PHASE_COLORS[p] : null;
-      if (cpp && cpp.I) series.push({ v: cpp.I[j], color: color || '#21A99B', width: cpp && py ? 2 : 1.3 });
-      if (py && py.I) series.push(cpp ? { v: py.I[j], color: '#1F2537', width: 1, dash: [3, 3] } : { v: py.I[j], color: color || '#E8833A', width: 1.3 });
+      pushSeries(series, 'I', j, cpp, py, color);
     });
-    if (ovI) g.cols.forEach((j) => series.push({ v: ovI.run.I[j], color: '#8A8F98', width: 1.2, dash: [6, 4] }));
+    if (ovI) g.cols.forEach((j) => series.push(heldSeries(ovI.run.I[j])));
     const item = { t: main.t, series, events: main.events, hover: null, unit: u,
                    labels: g.cols.length === 3 ? S.PH.map((p, j) => ({ name: p, s: series[j * (cpp && py ? 2 : 1)] })) : null };
     attachPlot(card, cv, item);

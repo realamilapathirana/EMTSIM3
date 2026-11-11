@@ -31,3 +31,4 @@
 
 Circuit loadNetlist(const std::string& path);   // throws std::runtime_error with file:line on errors
 Circuit parseNetlist(const std::string& text, const std::string& where = "netlist");
+int parseOnOff(const std::string& value);   // on/1/true/yes -> 1, off/0/false/no -> 0, otherwise -1

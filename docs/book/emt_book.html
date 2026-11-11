@@ -188,6 +188,33 @@ model (Kirchhoff's current law):</p>
 <div class='eq'><math display='block'><mrow><mfrac><mrow><mrow><mi>V</mi><mo>−</mo><msub><mrow><mi>v</mi></mrow><mrow><mn>2</mn></mrow></msub></mrow></mrow><mrow><mi>R</mi></mrow></mfrac><mo>=</mo><mfrac><mrow><msub><mrow><mi>v</mi></mrow><mrow><mn>2</mn></mrow></msub></mrow><mrow><msub><mrow><mi>R</mi></mrow><mrow><mi>L</mi></mrow></msub></mrow></mfrac><mo>+</mo><msub><mrow><mi>I</mi></mrow><mrow><mi mathvariant='normal'>hist</mi></mrow></msub><mspace width='1em'/><mo>⟹</mo><mspace width='1em'/><msub><mrow><mi>v</mi></mrow><mrow><mn>2</mn></mrow></msub><mo>=</mo><mfrac><mrow><mrow><mfrac><mrow><mi>V</mi></mrow><mrow><mi>R</mi></mrow></mfrac><mo>−</mo><msub><mrow><mi>I</mi></mrow><mrow><mi mathvariant='normal'>hist</mi></mrow></msub></mrow></mrow><mrow><mrow><mfrac><mrow><mn>1</mn></mrow><mrow><mi>R</mi></mrow></mfrac><mo>+</mo><mfrac><mrow><mn>1</mn></mrow><mrow><msub><mrow><mi>R</mi></mrow><mrow><mi>L</mi></mrow></msub></mrow></mfrac></mrow></mrow></mfrac></mrow></math><span class='eqn'>(5)</span></div>
 <p class='words'>In words: current in through <i>R</i> = current out through the disguised inductor. Solve for <i>v</i><sub>2</sub>.</p>
 <p>Then equation (4) gives the inductor current.</p>
+<p>Stop and look at who is who in (5). On the left, <i>v</i><sub>2</sub> is <b>now</b>: the one thing
+we do not know. On the right, <i>V</i>, <i>R</i> and <i>R<sub>L</sub></i> never change, and
+<i>I</i><sub>hist</sub> is made entirely from the <b>last step</b>: its current and its voltage,
+from the note. So every time step is the same little cycle (Figure 9): read the note from the
+last step, solve for the voltages now, work out the currents now, write the note for the next step.</p>
+<figure><img src="fig/loop.svg" style="width:100%">
+<figcaption>Figure 9: One time step. The last step's voltages and currents live only in the notes
+(the history currents); the solve uses them on the right-hand side and gives this step's voltages;
+the currents follow, and become the last step of the next step.</figcaption></figure>
+<p>Here are the four quantities of one inductor, and when each one is known:</p>
+<table class="narrow">
+<tr><th>symbol</th><th>where it comes from</th><th>when</th></tr>
+<tr><td><i>v</i>(<i>t</i>−Δt), <i>i</i>(<i>t</i>−Δt)</td><td>the result of the last step</td><td>known before the step starts</td></tr>
+<tr><td><i>I</i><sub>hist</sub>(<i>t</i>)</td><td>= <i>i</i>(<i>t</i>−Δt) + <i>v</i>(<i>t</i>−Δt) / <i>R<sub>L</sub></i></td><td>computed first, from the two above</td></tr>
+<tr><td><i>v</i>(<i>t</i>)</td><td>from <i>G</i> <i>v</i>(<i>t</i>) = <i>i</i><sub>hist</sub>(<i>t</i>)</td><td>the unknown: the solve gives it</td></tr>
+<tr><td><i>i</i>(<i>t</i>)</td><td>= <i>v</i>(<i>t</i>) / <i>R<sub>L</sub></i> + <i>I</i><sub>hist</sub>(<i>t</i>)</td><td>last, from <i>v</i>(<i>t</i>) and the note</td></tr>
+</table>
+<p>Put the last two rows together and you are back at equation (3), the trapezoidal rule:
+<i>i</i>(<i>t</i>) − <i>i</i>(<i>t</i>−Δt) = (Δt/2<i>L</i>) [<i>v</i>(<i>t</i>) + <i>v</i>(<i>t</i>−Δt)]. So <i>G</i> <i>v</i> = <i>i</i> is
+nothing but that rule, written for the whole circuit at once, with everything from <i>t</i>−Δt moved to the
+right-hand side. The current <i>i</i>(<i>t</i>) never appears in it; it is read off afterwards, and
+then it is the <i>i</i>(<i>t</i>−Δt) of the next step.</p>
+<div class='box remember'><div class='tag'>Remember</div><p>In <i>G</i> <i>v</i> = <i>i</i>, the two sides live at different times.
+<b>Left: now</b>, the voltages we are solving for. <b>Right: the last step</b>, folded into the
+history currents. The currents of this step are not on the right-hand side; they are computed
+afterwards from the new voltages, and only then do they go into the next right-hand side.</p></div>
+
 
 <h3>e. Step by step, with numbers</h3>
 <p>Before <i>t</i> = 0, everything is at rest: <i>i</i> = 0 and <i>v</i><sub>2</sub> = 0. Grab a
@@ -221,16 +248,16 @@ Table 1.</p><p class="answer">Answer: <i>I</i><sub>hist</sub> = 2.5937 A, <i>v</
 </table>
 
 <h3>f. How good is the answer?</h3>
-<p>Figure 9 puts our simulation next to the exact answer. After a few steps the two curves almost
+<p>Figure 10 puts our simulation next to the exact answer. After a few steps the two curves almost
 overlap, but the simulation is always a little behind. Why?</p>
 <figure><img src="fig/rl_result.svg" style="width:100%">
-<figcaption>Figure 9: Simulated (orange dots) and exact (grey) current. Right: the first six steps.
+<figcaption>Figure 10: Simulated (orange dots) and exact (grey) current. Right: the first six steps.
 The simulation matches the exact curve shifted by half a time step (black dashes).</figcaption></figure>
 <p>Our simulation has slow reflexes. In step 1, the trapezoidal rule assumed the inductor voltage rose
 in a straight line from 0 V (when everything was at rest) to 9.52 V. In reality it jumped
 to 10 V the instant the switch closed. A voltage that ramps up over one step acts, on average, like a
 voltage that jumps halfway through the step. So the simulation behaves as if the switch had closed half
-a step late, at Δt/2. Shift the exact curve by Δt/2 and the two agree very well (right of Figure 9).
+a step late, at Δt/2. Shift the exact curve by Δt/2 and the two agree very well (right of Figure 10).
 A smaller Δt means smaller reflex delay:</p>
 <table>
 <caption>Table 2: The current at <i>t</i> = 1 ms for three time steps (exact answer: 6.3212 A).</caption>
@@ -242,11 +269,11 @@ Here the circuit's time constant is 1 ms, so a step of 0.1 ms is plenty.</p></di
 
 <h2>5. A bigger network</h2>
 <p>Writing Kirchhoff's law by hand for every node gets boring fast. Computers do it with a matrix.
-Figure 10 shows a slightly bigger circuit: a 100 V, 50 Hz source feeding a line (<i>R</i>1 and
+Figure 11 shows a slightly bigger circuit: a 100 V, 50 Hz source feeding a line (<i>R</i>1 and
 <i>L</i>), a cable that adds some capacitance <i>C</i>, and a 100 Ω load. The time step is
 Δt = 50 μs.</p>
 <figure><img src="fig/network.svg" style="width:80%">
-<figcaption>Figure 10: The network of chapters 5 and 6. Nodes 1, 2 and 3; node 0 is ground.</figcaption></figure>
+<figcaption>Figure 11: The network of chapters 5 and 6. Nodes 1, 2 and 3; node 0 is ground.</figcaption></figure>
 
 <h3>a. Everything becomes a conductance</h3>
 <p>In disguise, every element is a conductance (1 / resistance), plus maybe a current source:</p>
@@ -260,19 +287,23 @@ Figure 10 shows a slightly bigger circuit: a 100 V, 50 Hz source feeding a line 
 
 <h3>b. The rubber stamp</h3>
 <p>Now we build the conductance matrix <b>G</b>, one element at a time, with a rubber stamp
-(Figure 11). The stamp for a conductance <i>g</i> between nodes <i>k</i> and <i>m</i> adds +<i>g</i> to
+(Figure 12). The stamp for a conductance <i>g</i> between nodes <i>k</i> and <i>m</i> adds +<i>g</i> to
 the two diagonal spots (<i>k</i>,<i>k</i>) and (<i>m</i>,<i>m</i>), and −<i>g</i> to the two
 off-diagonal spots (<i>k</i>,<i>m</i>) and (<i>m</i>,<i>k</i>). If one end is ground, only the
 diagonal spot of the other end gets stamped.</p>
 <figure><img src="fig/stamp.svg" style="width:88%">
-<figcaption>Figure 11: Stamping the inductor (between nodes 2 and 3) into <b>G</b>.</figcaption></figure>
+<figcaption>Figure 12: Stamping the inductor (between nodes 2 and 3) into <b>G</b>.</figcaption></figure>
 <p>Stamp all four elements, and you get:</p>
 <div class='eq'><math display='block'><mrow><mi mathvariant='normal'>𝐆</mi><mo>=</mo><mrow><mo>[</mo><mtable columnspacing='1.1em'><mtr><mtd><mn class='num'>1.0000</mn></mtd><mtd><mn class='num'>−1.0000</mn></mtd><mtd><mn class='num'>0.0000</mn></mtd></mtr><mtr><mtd><mn class='num'>−1.0000</mn></mtd><mtd><mn class='num'>1.0025</mn></mtd><mtd><mn class='num'>−0.0025</mn></mtd></mtr><mtr><mtd><mn class='num'>0.0000</mn></mtd><mtd><mn class='num'>−0.0025</mn></mtd><mtd><mn class='num'>0.4125</mn></mtd></mtr></mtable><mo>]</mo></mrow></mrow></math></div>
 <p>Kirchhoff's current law for all the nodes at once is then one neat line:</p>
-<div class='eq'><math display='block'><mrow><mi mathvariant='normal'>𝐆</mi><mi mathvariant='normal'>𝐯</mi><mo>=</mo><mi mathvariant='normal'>𝐢</mi></mrow></math><span class='eqn'>(6)</span></div>
-<p class='words'>In words: conductances × node voltages = currents pushed into the nodes by the history current sources.</p>
-<p>A history current <i>I</i><sub>hist</sub> flowing from node <i>k</i> to node <i>m</i> takes
-<i>I</i><sub>hist</sub> out of <b>i</b><sub><i>k</i></sub> and puts it into <b>i</b><sub><i>m</i></sub>.</p>
+<div class='eq'><math display='block'><mrow><mi mathvariant='normal'>𝐆</mi><mi mathvariant='normal'>𝐯</mi><mo stretchy='false'>(</mo><mi>t</mi><mo stretchy='false'>)</mo><mo>=</mo><msub><mrow><mi mathvariant='normal'>𝐢</mi></mrow><mrow><mi mathvariant='normal'>hist</mi></mrow></msub><mo stretchy='false'>(</mo><mi>t</mi><mo stretchy='false'>)</mo></mrow></math><span class='eqn'>(6)</span></div>
+<p class='words'>In words: conductances × the voltages <b>now</b> = the history currents written at the <b>last step</b>.</p>
+<p><b>v</b>(<i>t</i>) is this step's unknown. <b>i</b><sub>hist</sub>(<i>t</i>) is built before the solve,
+from the last step's voltages and currents: a history current <i>I</i><sub>hist</sub> flowing from node
+<i>k</i> to node <i>m</i> takes <i>I</i><sub>hist</sub> out of entry <i>k</i> and puts it into entry <i>m</i>.
+The branch currents of this step are not in it; they come afterwards, element by element, from
+<i>i</i> = <i>v</i>/<i>R</i><sub>eq</sub> + <i>I</i><sub>hist</sub>, and feed the next step's right-hand side.
+(In the rest of the chapter we write just <b>i</b> for this vector.)</p>
 
 <h3>c. The boss node</h3>
 <p>The source is the boss of node 1: it tells node 1 exactly what voltage to have. So node 1 is
@@ -302,13 +333,13 @@ current through yet. Its current is <math><mrow><mn>0.0025</mn><mo>×</mo><mo st
 <p><i>I</i><sub>hist,L</sub> flows from node 2 to node 3, and <i>I</i><sub>hist,C</sub> from node 3 to
 ground. Then solve:</p>
 <div class='eq'><math display='block'><mrow><msub><mrow><mi mathvariant='normal'>𝐢</mi></mrow><mrow><mi>U</mi></mrow></msub><mo>=</mo><mrow><mo>[</mo><mtable columnspacing='1.1em'><mtr><mtd><mn class='num'>−0.495677</mn></mtd></mtr><mtr><mtd><mn class='num'>0.979264</mn></mtd></mtr></mtable><mo>]</mo></mrow><mo>,</mo><mspace width='1em'/><msub><mrow><mi mathvariant='normal'>𝐯</mi></mrow><mrow><mi>K</mi></mrow></msub><mo>=</mo><mn class='num'>99.9507</mn><mspace width='0.2em'/><mi mathvariant='normal'>V</mi><mo>,</mo><mspace width='1em'/><msub><mrow><mi mathvariant='normal'>𝐯</mi></mrow><mrow><mi>U</mi></mrow></msub><mo>=</mo><mrow><mo>[</mo><mtable columnspacing='1.1em'><mtr><mtd><mn class='num'>99.2144</mn></mtd></mtr><mtr><mtd><mn class='num'>2.9753</mn></mtd></mtr></mtable><mo>]</mo></mrow></mrow></math></div>
-<p>And so on, step after step. Figure 12 shows the movie of node 3 for the first 80 ms. When the
+<p>And so on, step after step. Figure 13 shows the movie of node 3 for the first 80 ms. When the
 source switches on, the inductor and the capacitor play catch with the energy, at their natural
 frequency <math><mrow><mn>1</mn><mo>/</mo><mo stretchy='false'>(</mo><mn>2</mn><mi>π</mi><msqrt><mrow><mi mathvariant='normal'>LC</mi></mrow></msqrt><mo stretchy='false'>)</mo><mo>≈</mo><mn class='num'>503</mn><mspace width='0.2em'/><mi mathvariant='normal'>Hz</mi></mrow></math>. The voltage
 overshoots to 153.2 V. Then the load calms the ringing down, and we end up exactly where Phasor
 Pete's photo says we should.</p>
 <figure><img src="fig/network_result.svg" style="width:100%">
-<figcaption>Figure 12: Voltage of node 3 after the source switches on, and Pete's steady state
+<figcaption>Figure 13: Voltage of node 3 after the source switches on, and Pete's steady state
 (a phasor calculation of the same circuit).</figcaption></figure>
 <div class='box recipe'><div class='tag'>The recipe of every EMT program</div>
 <p><b>Once:</b> put every element in disguise, stamp <b>G</b>, and factorise <b>G</b><sub>UU</sub>.</p>
@@ -329,18 +360,18 @@ it is open (1 MΩ). A fault is a switch from a node to ground.</p>
 recipe: re-stamp <b>G</b>, factorise it again, and carry on. The notes (history currents) are not
 touched, so the inductors and capacitors remember their currents and voltages across the switching
 instant, just like real ones.</p>
-<p>Let us short-circuit node 3 to ground at 30 ms and remove the short at 60 ms (Figure 13).</p>
+<p>Let us short-circuit node 3 to ground at 30 ms and remove the short at 60 ms (Figure 14).</p>
 <figure><img src="fig/network_fault.svg" style="width:80%">
-<figcaption>Figure 13: The network of Figure 10, with a fault from node 3 to ground.</figcaption></figure>
+<figcaption>Figure 14: The network of Figure 11, with a fault from node 3 to ground.</figcaption></figure>
 <p>While the fault is open, it stamps a tiny 1/10<sup>6</sup> S onto <b>G</b><sub>33</sub>. When it
 closes, it stamps 1/0.01 = 100 S:</p>
 <div class='eq'><math display='block'><mrow><mi mathvariant='normal'>before</mi><mo>:</mo><mspace width='1em'/><msub><mrow><mi mathvariant='normal'>𝐆</mi></mrow><mrow><mi mathvariant='normal'>UU</mi></mrow></msub><mo>=</mo><mrow><mo>[</mo><mtable columnspacing='1.1em'><mtr><mtd><mn class='num'>1.002500</mn></mtd><mtd><mn class='num'>−0.002500</mn></mtd></mtr><mtr><mtd><mn class='num'>−0.002500</mn></mtd><mtd><mn class='num'>0.412501</mn></mtd></mtr></mtable><mo>]</mo></mrow><mspace width='1em'/><mspace width='1em'/><mi mathvariant='normal'>during</mi><mo>:</mo><mspace width='1em'/><msub><mrow><mi mathvariant='normal'>𝐆</mi></mrow><mrow><mi mathvariant='normal'>UU</mi></mrow></msub><mo>=</mo><mrow><mo>[</mo><mtable columnspacing='1.1em'><mtr><mtd><mn class='num'>1.0025</mn></mtd><mtd><mn class='num'>−0.0025</mn></mtd></mtr><mtr><mtd><mn class='num'>−0.0025</mn></mtd><mtd><mn class='num'>100.4125</mn></mtd></mtr></mtable><mo>]</mo></mrow></mrow></math></div>
-<p>Figure 14 shows what happens. When the fault hits, node 3 collapses to almost zero, and the capacitor
+<p>Figure 15 shows what happens. When the fault hits, node 3 collapses to almost zero, and the capacitor
 dumps its charge into the fault. The current in <i>L</i> grows to about 32.3 A; the
 inductor is the only thing limiting it. When the fault is removed, the capacitor and the inductor play
 catch again at about 503 Hz, until the network settles back to normal.</p>
 <figure><img src="fig/fault_result.svg" style="width:100%">
-<figcaption>Figure 14: Voltage of node 3 and current in the inductor, with the fault (shaded) from 30 to
+<figcaption>Figure 15: Voltage of node 3 and current in the inductor, with the fault (shaded) from 30 to
 60 ms.</figcaption></figure>
 
 
@@ -386,15 +417,15 @@ zoom in on the first few steps.</p>
 
 <h2>8. The ghost in the machine</h2>
 <p>So far we have only closed switches. Let us take the circuit of chapter 4 again, wait until the
-current has almost reached 10 A, and then <i>open</i> the switch at <i>t</i> = 3 ms (Figure 15).</p>
+current has almost reached 10 A, and then <i>open</i> the switch at <i>t</i> = 3 ms (Figure 16).</p>
 <figure><img src="fig/rl_open_circuit.svg" style="width:60%">
-<figcaption>Figure 15: The circuit of chapter 4, with a switch that opens at 3 ms.</figcaption></figure>
+<figcaption>Figure 16: The circuit of chapter 4, with a switch that opens at 3 ms.</figcaption></figure>
 <p>Remember the inductor's personality: it hates sudden changes in its current. In a real circuit, when
 the switch opens, the inductor fights back by pushing the voltage across the opening contacts up very
 high (that is why breakers draw arcs), and the current dies away very quickly. Now look at what our
-simulation says (Figure 16).</p>
+simulation says (Figure 17).</p>
 <figure><img src="fig/rl_open_result.svg" style="width:100%">
-<figcaption>Figure 16: Left: current in the inductor. Right: voltage across the inductor at every step
+<figcaption>Figure 17: Left: current in the inductor. Right: voltage across the inductor at every step
 around the opening. Both calculated with the trapezoidal rule and Δt = 0.1 ms.</figcaption></figure>
 <img src="fig/ghost.svg" class="ghost" alt="">
 <p>The current looks fine. Just before the switch opens, it is 9.35 A, and from the next
@@ -403,10 +434,77 @@ step on, it is practically zero (less than 0.0002 A).</p>
 the steps after it, the simulation says −187.5, 187.5, −187.4, 187.4, −187.4 V, and so on. It flips
 sign at every single step, for as long as we care to simulate. No current flows, and yet the inductor
 voltage keeps jumping between plus and minus 187 V. Spooky.</p>
-<p>Does the voltage in a real circuit do that? Or is there a ghost in our simulation?</p>
+<p>Does the voltage in a real circuit do that? Or is there a ghost in our simulation? Think about it
+before you turn the page; chapter 9 catches it.</p>
 <div class='box try'><div class='tag'>Ghost hunting</div><p>Use equation (4), with the 1 MΩ of the open switch in series with
 <i>R<sub>L</sub></i> = 20 Ω. What happens to <i>I</i><sub>hist</sub> from one step to the next? Who
 wrote the wrong note?</p></div>
+
+<h2>9. Catching the ghost</h2>
+<p>Look at the inductor's note again, equation (4): <i>I</i><sub>hist</sub> = <i>i</i>(<i>t</i>−Δt) +
+<i>v</i>(<i>t</i>−Δt)/<i>R<sub>L</sub></i>. It remembers the <b>voltage</b> of the last step as well as the
+current. After the switch opens the current must be zero at every step, so equation (4) says
+0 = <i>v</i>(<i>t</i>)/<i>R<sub>L</sub></i> + <i>v</i>(<i>t</i>−Δt)/<i>R<sub>L</sub></i>, that is</p>
+<div class='eq'><math display='block'><mrow><mi>v</mi><mo stretchy='false'>(</mo><mi>t</mi><mo stretchy='false'>)</mo><mo>=</mo><mo>−</mo><mi>v</mi><mo stretchy='false'>(</mo><mi>t</mi><mo>−</mo><mi mathvariant='normal'>Δ</mi><mi>t</mi><mo stretchy='false'>)</mo></mrow></math></div>
+<p>The voltage has to flip sign every step, forever. That is the ghost: the trapezoidal rule averages
+the voltage over each step, so a sudden jump can only be represented by an endless alternation around
+the true value. Nothing in the circuit does this; the note does. Programs call it <b>numerical
+chatter</b>, and it appears after every switching that jumps an inductor voltage or a capacitor
+current.</p>
+
+<h3>a. Chatter removal: write a shorter note</h3>
+<p>The cure is to forget the old voltage, just for a moment. Right after a switching we take two
+<b>half steps</b> of Δt/2 with a different rule, <i>backward Euler</i>, whose note holds only the
+current:</p>
+<div class='eq'><math display='block'><mrow><mi>i</mi><mo stretchy='false'>(</mo><mi>t</mi><mo stretchy='false'>)</mo><mo>=</mo><mi>i</mi><mo stretchy='false'>(</mo><mi>t</mi><mo>−</mo><mi mathvariant='normal'>Δ</mi><mi>t</mi><mo>/</mo><mn>2</mn><mo stretchy='false'>)</mo><mo>+</mo><mfrac><mrow><mi mathvariant='normal'>Δ</mi><mi>t</mi></mrow><mrow><mn>2</mn><mi>L</mi></mrow></mfrac><mi>v</mi><mo stretchy='false'>(</mo><mi>t</mi><mo stretchy='false'>)</mo><mo>,</mo><mspace width='1em'/><mspace width='1em'/><msub><mrow><mi>I</mi></mrow><mrow><mi mathvariant='normal'>hist</mi></mrow></msub><mo>=</mo><mi>i</mi><mo stretchy='false'>(</mo><mi>t</mi><mo>−</mo><mi mathvariant='normal'>Δ</mi><mi>t</mi><mo>/</mo><mn>2</mn><mo stretchy='false'>)</mo></mrow></math></div>
+<p class='words'>In words: the same conductance Δt/2L as before, so <b>G</b> does not change; only the note is shorter.</p>
+<p>With a step of exactly Δt/2, backward Euler has the same conductance as the trapezoidal rule, so
+nothing has to be rebuilt or refactorised. After the two half steps the trapezoidal rule takes over
+again as if nothing had happened. This is called <i>critical damping adjustment</i>, CDA; the
+half-step solution is not written to the output, so the time grid stays the same.</p>
+<p class="step">The circuit of chapter 8, with chatter removal</p>
+<p>At 3.0 ms the switch is still closed in that sample: <i>i</i> = 9.3985 A,
+<i>v</i><sub>3</sub> = 0.5075 V. Then it opens. First half step, to 3.05 ms: the note is the current
+alone, 9.3985 A. The open switch (1 MΩ) lets almost nothing through, so the inductor can only
+keep its note by pushing its voltage to</p>
+<div class='eq'><math display='block'><mrow><msub><mrow><mi>v</mi></mrow><mrow><mn>3</mn></mrow></msub><mo stretchy='false'>(</mo><mn>3.05</mn><mspace width='0.2em'/><mi mathvariant='normal'>ms</mi><mo stretchy='false'>)</mo><mo>≈</mo><mo>−</mo><msub><mrow><mi>R</mi></mrow><mrow><mi>L</mi></mrow></msub><mo>×</mo><mn class='num'>9.3985</mn><mo>=</mo><mn class='num'>−188.0</mn><mspace width='0.2em'/><mi mathvariant='normal'>V</mi><mo>,</mo><mspace width='1em'/><mi>i</mi><mo>≈</mo><mn class='num'>0.0002</mn><mspace width='0.2em'/><mi mathvariant='normal'>A</mi></mrow></math></div>
+<p>That is the inductor's one protest at being switched off (in a real breaker it is the arc). Second
+half step, to 3.1 ms: the note is now 0.0002 A, so <i>v</i><sub>3</sub> = −0.004 V and
+<i>i</i> = 0.0000 A. From here the trapezoidal rule continues with a note of
+−0.0002 A: at 3.2 ms <i>v</i><sub>3</sub> = 0.004 V. A few millivolts remain, the echo of the
+0.0002 A that leaked through the 1 MΩ during the half step; the 187 V ghost is gone (Figure 18).</p>
+<figure><img src="fig/cda_result.svg" style="width:100%">
+<figcaption>Figure 18: The inductor voltage of chapter 8 with and without chatter removal. The hollow
+point is the half-step solution, which is not part of the output.</figcaption></figure>
+
+<h3>b. Interpolation: switch at the right instant</h3>
+<p>The second problem with a fixed time step is simpler to see. A switch is told to close at 1.02 ms,
+but the simulation only visits 1.0 ms and 1.2 ms. If it can only act at a time point, it closes at
+1.2 ms, and the whole current curve starts almost a step late (Figure 19, squares).</p>
+<p>The fix: take the step from 1.0 to 1.2 ms as usual, then notice that the switch should have acted
+at a fraction α = (1.02 − 1.0) / 0.2 = 0.1 of the way through it. Go back to that instant by
+<b>interpolating the whole state</b> (every node voltage, every note) between the two time points,</p>
+<div class='eq'><math display='block'><mrow><mi mathvariant='normal'>state</mi><mo stretchy='false'>(</mo><mn>1.02</mn><mspace width='0.2em'/><mi mathvariant='normal'>ms</mi><mo stretchy='false'>)</mo><mo>=</mo><mo stretchy='false'>(</mo><mn>1</mn><mo>−</mo><mo>α</mo><mo stretchy='false'>)</mo><mi mathvariant='normal'>state</mi><mo stretchy='false'>(</mo><mn>1.0</mn><mspace width='0.2em'/><mi mathvariant='normal'>ms</mi><mo stretchy='false'>)</mo><mo>+</mo><mo>α</mo><mi mathvariant='normal'>state</mi><mo stretchy='false'>(</mo><mn>1.2</mn><mspace width='0.2em'/><mi mathvariant='normal'>ms</mi><mo stretchy='false'>)</mo></mrow></math></div>
+<p>close the switch there, rebuild <b>G</b>, and continue from 1.02 ms: two half steps (chatter
+removal, since the switching jumps the inductor voltage), then normal steps. The simulation is now on a
+time grid shifted by 0.02 ms, so after the next step it interpolates back onto the original grid;
+the output has the same time points as before. The same trick finds a breaker's current zero, or the
+instant a diode's current crosses zero, inside a step.</p>
+
+<figure><img src="fig/interp_result.svg" style="width:100%">
+<figcaption>Figure 19: A 10 V battery switched onto 1 Ω + 1 mH at 1.02 ms, with Δt = 0.2 ms (the
+circuit <code>demo_interpolation.net</code>). At 1.4 ms the exact current is 3.16 A; the switch
+acting at the next time point gives 1.73 A, interpolation 3.08 A.</figcaption></figure>
+
+<p>The two belong together. Interpolation alone would still leave the trapezoidal rule's half-step
+delay after the switching (and the chatter); chatter removal alone acts one step late. With both, a
+switching acts at its instant as accurately as the trapezoidal rule itself allows.</p>
+<div class='box try'><div class='tag'>Try it</div><p>Both methods are on by default in EMTSim; the book's circuits switch them off with
+the line <code>.options chatter=off interp=off</code>. Run chapter 8's circuit with
+<code>run.bat circuits\demo_chatter.net --chatter=on</code>, or open <code>demo_chatter</code> and
+<code>demo_interpolation</code> in the editor: Run, tick <b>Hold run</b>, tick the option under Run
+settings, Run again, and the two results are drawn over each other. <code>docs/switching.md</code> has the
+details and where the code is.</p></div>
 
 <h2 class="newpage">Cheat sheet</h2>
 <div class="cheat">
@@ -420,11 +518,15 @@ wrote the wrong note?</p></div>
 <div class='eq'><math display='block'><mrow><msub><mrow><mi>I</mi></mrow><mrow><mi mathvariant='normal'>hist</mi></mrow></msub><mo stretchy='false'>(</mo><mi>t</mi><mo stretchy='false'>)</mo><mo>=</mo><mo>−</mo><mi>i</mi><mo stretchy='false'>(</mo><mi>t</mi><mo>−</mo><mi mathvariant='normal'>Δ</mi><mi>t</mi><mo stretchy='false'>)</mo><mo>−</mo><mfrac><mrow><mi>v</mi><mo stretchy='false'>(</mo><mi>t</mi><mo>−</mo><mi mathvariant='normal'>Δ</mi><mi>t</mi><mo stretchy='false'>)</mo></mrow><mrow><msub><mrow><mi>R</mi></mrow><mrow><mi>C</mi></mrow></msub></mrow></mfrac></mrow></math></div></div>
 <div><h4>The stamp of a conductance <i>g</i> between nodes <i>k</i> and <i>m</i></h4>
 <div class='eq'><math display='block'><mrow><msub><mrow><mi mathvariant='normal'>𝐆</mi></mrow><mrow><mi mathvariant='normal'>kk</mi></mrow></msub><mo>+=</mo><mi>g</mi><mo>,</mo><mspace width='1em'/><msub><mrow><mi mathvariant='normal'>𝐆</mi></mrow><mrow><mi mathvariant='normal'>mm</mi></mrow></msub><mo>+=</mo><mi>g</mi><mo>,</mo><mspace width='1em'/><msub><mrow><mi mathvariant='normal'>𝐆</mi></mrow><mrow><mi mathvariant='normal'>km</mi></mrow></msub><mo>−=</mo><mi>g</mi><mo>,</mo><mspace width='1em'/><msub><mrow><mi mathvariant='normal'>𝐆</mi></mrow><mrow><mi mathvariant='normal'>mk</mi></mrow></msub><mo>−=</mo><mi>g</mi></mrow></math></div></div>
-<div><h4>One time step</h4>
+<div><h4>One time step (left: the voltages now; right: history currents from the last step)</h4>
 <div class='eq'><math display='block'><mrow><msub><mrow><mi mathvariant='normal'>𝐆</mi></mrow><mrow><mi mathvariant='normal'>UU</mi></mrow></msub><msub><mrow><mi mathvariant='normal'>𝐯</mi></mrow><mrow><mi>U</mi></mrow></msub><mo>=</mo><msub><mrow><mi mathvariant='normal'>𝐢</mi></mrow><mrow><mi>U</mi></mrow></msub><mo>−</mo><msub><mrow><mi mathvariant='normal'>𝐆</mi></mrow><mrow><mi mathvariant='normal'>UK</mi></mrow></msub><msub><mrow><mi mathvariant='normal'>𝐯</mi></mrow><mrow><mi>K</mi></mrow></msub></mrow></math></div></div>
 <div><h4>Choosing Δt</h4><p style="text-indent:0;text-align:center">much smaller than the fastest thing you
 want to see: the simulation acts about Δt/2 late after a sudden jump.</p></div>
 <div><h4>Switches and faults</h4><p style="text-indent:0;text-align:center">closed 0.01 Ω, open 1 MΩ.
 When one changes: re-stamp <b>G</b>, factorise again, keep the notes.</p></div>
+<div><h4>Chatter removal (after a switching: two backward-Euler half steps, same <b>G</b>)</h4>
+<div class='eq'><math display='block'><mrow><msub><mrow><mi>I</mi></mrow><mrow><mi mathvariant='normal'>hist</mi></mrow></msub><mo>=</mo><mi>i</mi><mo stretchy='false'>(</mo><mi>t</mi><mo>−</mo><mi mathvariant='normal'>Δ</mi><mi>t</mi><mo>/</mo><mn>2</mn><mo stretchy='false'>)</mo><mspace width='1em'/><mo stretchy='false'>(</mo><mi>L</mi><mo stretchy='false'>)</mo><mo>,</mo><mspace width='1em'/><mspace width='1em'/><msub><mrow><mi>I</mi></mrow><mrow><mi mathvariant='normal'>hist</mi></mrow></msub><mo>=</mo><mo>−</mo><mfrac><mrow><mi>v</mi><mo stretchy='false'>(</mo><mi>t</mi><mo>−</mo><mi mathvariant='normal'>Δ</mi><mi>t</mi><mo>/</mo><mn>2</mn><mo stretchy='false'>)</mo></mrow><mrow><msub><mrow><mi>R</mi></mrow><mrow><mi>C</mi></mrow></msub></mrow></mfrac><mspace width='1em'/><mo stretchy='false'>(</mo><mi>C</mi><mo stretchy='false'>)</mo></mrow></math></div></div>
+<div><h4>Interpolation (a switching at fraction α of the step)</h4>
+<div class='eq'><math display='block'><mrow><mi mathvariant='normal'>state</mi><mo stretchy='false'>(</mo><mi>t</mi><mo>+</mo><mo>α</mo><mi mathvariant='normal'>Δ</mi><mi>t</mi><mo stretchy='false'>)</mo><mo>=</mo><mo stretchy='false'>(</mo><mn>1</mn><mo>−</mo><mo>α</mo><mo stretchy='false'>)</mo><mi mathvariant='normal'>state</mi><mo stretchy='false'>(</mo><mi>t</mi><mo stretchy='false'>)</mo><mo>+</mo><mo>α</mo><mi mathvariant='normal'>state</mi><mo stretchy='false'>(</mo><mi>t</mi><mo>+</mo><mi mathvariant='normal'>Δ</mi><mi>t</mi><mo stretchy='false'>)</mo></mrow></math></div></div>
 </div>
 </body></html>

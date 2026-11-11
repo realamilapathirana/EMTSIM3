@@ -70,17 +70,18 @@ class Circuit:
             G[a, a] += g; G[b, b] += g; G[a, b] -= g; G[b, a] -= g
         return G[1:, 1:]
 
-    def step(self, t):
-        """One step at time t. Returns dict with everything the book prints."""
+    def step(self, t, euler=False):
+        """One step at time t (a backward-Euler half step with euler=True: the history currents carry
+        no voltage term, the conductances are the same). Returns dict with everything the book prints."""
         G = self.G(t)
         inj = np.zeros(self.n + 1)
         hist = {}
         for e in self.el:
             s = self.state[e[-1]]
             if e[0] == "L":
-                s["h"] = s["I"] + s["V"] / self.reff(e, t)
+                s["h"] = s["I"] if euler else s["I"] + s["V"] / self.reff(e, t)
             elif e[0] == "C":
-                s["h"] = -s["I"] - s["V"] / self.reff(e, t)
+                s["h"] = -s["V"] / self.reff(e, t) if euler else -s["I"] - s["V"] / self.reff(e, t)
             else:
                 s["h"] = 0.0
             if e[0] in "LC":
@@ -120,6 +121,24 @@ def rl_circuit(dt, opens=None):
                        ("R", 2, 3, 1.0, "R"), ("L", 3, 0, 1e-3, "L")], dt)
 
 
+def rl_open_cda(dt, t_open=3e-3, tstop=5e-3):
+    """The circuit of chapter 8 with chatter removal: the switch opens at t_open (a time point) and the
+    next two steps are backward-Euler half steps. Returns the grid steps and the half-step solution."""
+    c = Circuit(3, [("V", 1, 10.0, 0.0, "BATTERY"), ("SW", 1, 2, lambda t: t <= t_open + 1e-12, "SWITCH"),
+                    ("R", 2, 3, 1.0, "R"), ("L", 3, 0, 1e-3, "L")], dt)
+    out, half = [], None
+    k, n = 1, int(round(tstop / dt))
+    while k <= n:
+        t = k * dt
+        out.append(c.step(t))
+        k += 1
+        if abs(t - t_open) < 1e-12:
+            half = c.step(t + 0.5 * dt, euler=True)
+            out.append(c.step(t + dt, euler=True))
+            k += 1
+    return out, half
+
+
 def network(dt, fault=None):
     el = [("V", 1, 100.0, 50.0, "SOURCE"), ("R", 1, 2, 1.0, "R1"), ("L", 2, 3, 0.01, "L"),
           ("C", 3, 0, 10e-6, "C"), ("R", 3, 0, 100.0, "LOAD")]
@@ -129,13 +148,13 @@ def network(dt, fault=None):
 
 
 # ------------------------------------------------------------ check against the C++ solver
-def emtsim(netfile):
+def emtsim(netfile, *flags):
     exe = os.path.join(ROOT, "build", "emtsim.exe" if os.name == "nt" else "emtsim")
     if not os.path.exists(exe):
         return None
     d = tempfile.mkdtemp()
     try:
-        subprocess.run([exe, netfile], cwd=d, check=True, capture_output=True)
+        subprocess.run([exe, netfile, *flags], cwd=d, check=True, capture_output=True)
         v = np.loadtxt(os.path.join(d, "results.csv"), delimiter=",", skiprows=1)
         with open(os.path.join(d, "currents.csv")) as f:
             names = f.readline().strip().split(",")
@@ -145,8 +164,8 @@ def emtsim(netfile):
         shutil.rmtree(d, ignore_errors=True)
 
 
-def check(name, steps, current_names):
-    res = emtsim(os.path.join(NETS, name))
+def check(name, steps, current_names, *flags):
+    res = emtsim(os.path.join(NETS, name), *flags)
     if res is None:
         print("  (build/emtsim.exe not found: %s not checked)" % name)
         return
@@ -465,6 +484,30 @@ def fig_network():
     save(fig, "network_fault.svg")
 
 
+def fig_loop():
+    """What is known and what is unknown in one time step."""
+    fig, ax = canvas(7.4, 3.2, (-0.2, 16.0), (-1.9, 5.6))
+    def box(x, y, w, h, title, body, fc="white", ec=INK):
+        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.05,rounding_size=0.25", fc=fc, ec=ec, lw=1.4))
+        ax.text(x + w / 2, y + h - 0.45, title, ha="center", va="center", fontsize=10.5, fontweight="bold")
+        ax.text(x + w / 2, y + h / 2 - 0.35, body, ha="center", va="center", fontsize=9.5, linespacing=1.35)
+    def arrow(x0, y0, x1, y1):
+        ax.annotate("", xy=(x1, y1), xytext=(x0, y0), arrowprops=dict(arrowstyle="-|>", color=INK, lw=1.4, mutation_scale=14))
+    box(0.0, 2.2, 3.6, 2.6, "Last step (known)", "v(t − Δt)\ni(t − Δt)", fc="#F3F4F6")
+    box(4.8, 2.2, 5.4, 2.6, "The notes", "I_hist(t) = i(t−Δt) + v(t−Δt) / R_L\nfor every L and C", fc=NOTE, ec="#C9B44A")
+    box(11.4, 2.2, 4.4, 2.6, "Solve", "G v(t) = i_hist(t)\nunknown: v(t)")
+    box(11.4, -0.4, 4.4, 1.9, "Branch currents", "i(t) = v(t) / R_eq + I_hist(t)")
+    arrow(3.6, 3.5, 4.8, 3.5)
+    arrow(10.2, 3.5, 11.4, 3.5)
+    arrow(13.6, 2.2, 13.6, 1.5)
+    line(ax, (13.6, -0.4), (13.6, -1.1), (1.8, -1.1), lw=1.4)
+    arrow(1.8, -1.1, 1.8, 2.2)
+    ax.text(7.9, -1.45, "this step's voltages and currents become the next step's last step", ha="center", va="center",
+            fontsize=9, color=ACCENT)
+    ax.text(7.9, 5.3, "G never changes; only the right-hand side does", ha="center", fontsize=9.5, style="italic", color="#444")
+    save(fig, "loop.svg")
+
+
 def fig_rl_open():
     fig, ax = canvas(5.6, 2.9, (-1.9, 9.4), (-1.2, 4.4))
     vsource(ax, (0, 0), (0, 3))
@@ -752,7 +795,7 @@ def build():
     os.makedirs(FIG, exist_ok=True)
     print("figures ...")
     fig_cover(); fig_photo_movie(); fig_rl(); fig_trapezoid(); fig_companion(); fig_rl_companion()
-    fig_network(); fig_rl_open(); fig_cast(); fig_pete_emma()
+    fig_network(); fig_rl_open(); fig_cast(); fig_pete_emma(); fig_loop()
 
     print("numbers ...")
     # ---------------- chapter 4: RL circuit
@@ -991,6 +1034,33 @@ model (Kirchhoff's current law):</p>
     sb("v", "2"), "=", fr(cat(fr("V", "R"), "−", I_HIST), cat(fr("1", "R"), "+", fr("1", R_L))), label=5)}
 {words("current in through <i>R</i> = current out through the disguised inductor. Solve for <i>v</i><sub>2</sub>.")}
 <p>Then equation (4) gives the inductor current.</p>
+<p>Stop and look at who is who in (5). On the left, <i>v</i><sub>2</sub> is <b>now</b>: the one thing
+we do not know. On the right, <i>V</i>, <i>R</i> and <i>R<sub>L</sub></i> never change, and
+<i>I</i><sub>hist</sub> is made entirely from the <b>last step</b>: its current and its voltage,
+from the note. So every time step is the same little cycle (Figure 9): read the note from the
+last step, solve for the voltages now, work out the currents now, write the note for the next step.</p>
+<figure><img src="fig/loop.svg" style="width:100%">
+<figcaption>Figure 9: One time step. The last step's voltages and currents live only in the notes
+(the history currents); the solve uses them on the right-hand side and gives this step's voltages;
+the currents follow, and become the last step of the next step.</figcaption></figure>
+<p>Here are the four quantities of one inductor, and when each one is known:</p>
+<table class="narrow">
+<tr><th>symbol</th><th>where it comes from</th><th>when</th></tr>
+<tr><td><i>v</i>(<i>t</i>−Δt), <i>i</i>(<i>t</i>−Δt)</td><td>the result of the last step</td><td>known before the step starts</td></tr>
+<tr><td><i>I</i><sub>hist</sub>(<i>t</i>)</td><td>= <i>i</i>(<i>t</i>−Δt) + <i>v</i>(<i>t</i>−Δt) / <i>R<sub>L</sub></i></td><td>computed first, from the two above</td></tr>
+<tr><td><i>v</i>(<i>t</i>)</td><td>from <i>G</i> <i>v</i>(<i>t</i>) = <i>i</i><sub>hist</sub>(<i>t</i>)</td><td>the unknown: the solve gives it</td></tr>
+<tr><td><i>i</i>(<i>t</i>)</td><td>= <i>v</i>(<i>t</i>) / <i>R<sub>L</sub></i> + <i>I</i><sub>hist</sub>(<i>t</i>)</td><td>last, from <i>v</i>(<i>t</i>) and the note</td></tr>
+</table>
+<p>Put the last two rows together and you are back at equation (3), the trapezoidal rule:
+<i>i</i>(<i>t</i>) − <i>i</i>(<i>t</i>−Δt) = (Δt/2<i>L</i>) [<i>v</i>(<i>t</i>) + <i>v</i>(<i>t</i>−Δt)]. So <i>G</i> <i>v</i> = <i>i</i> is
+nothing but that rule, written for the whole circuit at once, with everything from <i>t</i>−Δt moved to the
+right-hand side. The current <i>i</i>(<i>t</i>) never appears in it; it is read off afterwards, and
+then it is the <i>i</i>(<i>t</i>−Δt) of the next step.</p>
+""" + box("remember", "Remember", """<p>In <i>G</i> <i>v</i> = <i>i</i>, the two sides live at different times.
+<b>Left: now</b>, the voltages we are solving for. <b>Right: the last step</b>, folded into the
+history currents. The currents of this step are not on the right-hand side; they are computed
+afterwards from the new voltages, and only then do they go into the next right-hand side.</p>""") + f"""
+
 
 <h3>e. Step by step, with numbers</h3>
 <p>Before <i>t</i> = 0, everything is at rest: <i>i</i> = 0 and <i>v</i><sub>2</sub> = 0. Grab a
@@ -1026,16 +1096,16 @@ Table 1.</p><p class="answer">Answer: <i>I</i><sub>hist</sub> = {f(r4[2])} A, <i
 </table>
 
 <h3>f. How good is the answer?</h3>
-<p>Figure 9 puts our simulation next to the exact answer. After a few steps the two curves almost
+<p>Figure 10 puts our simulation next to the exact answer. After a few steps the two curves almost
 overlap, but the simulation is always a little behind. Why?</p>
 <figure><img src="fig/rl_result.svg" style="width:100%">
-<figcaption>Figure 9: Simulated (orange dots) and exact (grey) current. Right: the first six steps.
+<figcaption>Figure 10: Simulated (orange dots) and exact (grey) current. Right: the first six steps.
 The simulation matches the exact curve shifted by half a time step (black dashes).</figcaption></figure>
 <p>Our simulation has slow reflexes. In step 1, the trapezoidal rule assumed the inductor voltage rose
 in a straight line from 0 V (when everything was at rest) to {f(s1['v'][2], 2)} V. In reality it jumped
 to 10 V the instant the switch closed. A voltage that ramps up over one step acts, on average, like a
 voltage that jumps halfway through the step. So the simulation behaves as if the switch had closed half
-a step late, at Δt/2. Shift the exact curve by Δt/2 and the two agree very well (right of Figure 9).
+a step late, at Δt/2. Shift the exact curve by Δt/2 and the two agree very well (right of Figure 10).
 A smaller Δt means smaller reflex delay:</p>
 <table>
 <caption>Table 2: The current at <i>t</i> = 1 ms for three time steps (exact answer: {f(exact(1e-3))} A).</caption>
@@ -1050,11 +1120,11 @@ Here the circuit's time constant is 1 ms, so a step of 0.1 ms is plenty.</p>""")
     a(f"""
 <h2>5. A bigger network</h2>
 <p>Writing Kirchhoff's law by hand for every node gets boring fast. Computers do it with a matrix.
-Figure 10 shows a slightly bigger circuit: a 100 V, 50 Hz source feeding a line (<i>R</i>1 and
+Figure 11 shows a slightly bigger circuit: a 100 V, 50 Hz source feeding a line (<i>R</i>1 and
 <i>L</i>), a cable that adds some capacitance <i>C</i>, and a 100 Ω load. The time step is
 Δt = 50 μs.</p>
 <figure><img src="fig/network.svg" style="width:80%">
-<figcaption>Figure 10: The network of chapters 5 and 6. Nodes 1, 2 and 3; node 0 is ground.</figcaption></figure>
+<figcaption>Figure 11: The network of chapters 5 and 6. Nodes 1, 2 and 3; node 0 is ground.</figcaption></figure>
 
 <h3>a. Everything becomes a conductance</h3>
 <p>In disguise, every element is a conductance (1 / resistance), plus maybe a current source:</p>
@@ -1068,19 +1138,23 @@ Figure 10 shows a slightly bigger circuit: a 100 V, 50 Hz source feeding a line 
 
 <h3>b. The rubber stamp</h3>
 <p>Now we build the conductance matrix <b>G</b>, one element at a time, with a rubber stamp
-(Figure 11). The stamp for a conductance <i>g</i> between nodes <i>k</i> and <i>m</i> adds +<i>g</i> to
+(Figure 12). The stamp for a conductance <i>g</i> between nodes <i>k</i> and <i>m</i> adds +<i>g</i> to
 the two diagonal spots (<i>k</i>,<i>k</i>) and (<i>m</i>,<i>m</i>), and −<i>g</i> to the two
 off-diagonal spots (<i>k</i>,<i>m</i>) and (<i>m</i>,<i>k</i>). If one end is ground, only the
 diagonal spot of the other end gets stamped.</p>
 <figure><img src="fig/stamp.svg" style="width:88%">
-<figcaption>Figure 11: Stamping the inductor (between nodes 2 and 3) into <b>G</b>.</figcaption></figure>
+<figcaption>Figure 12: Stamping the inductor (between nodes 2 and 3) into <b>G</b>.</figcaption></figure>
 <p>Stamp all four elements, and you get:</p>
 {eq(BG, "=", mat(G, 4))}
 <p>Kirchhoff's current law for all the nodes at once is then one neat line:</p>
-{eq(BG, BV, "=", BI, label=6)}
-{words("conductances × node voltages = currents pushed into the nodes by the history current sources.")}
-<p>A history current <i>I</i><sub>hist</sub> flowing from node <i>k</i> to node <i>m</i> takes
-<i>I</i><sub>hist</sub> out of <b>i</b><sub><i>k</i></sub> and puts it into <b>i</b><sub><i>m</i></sub>.</p>
+{eq(BG, BV, "(t) =", sb(BI, "hist"), "(t)", label=6)}
+{words("conductances × the voltages <b>now</b> = the history currents written at the <b>last step</b>.")}
+<p><b>v</b>(<i>t</i>) is this step's unknown. <b>i</b><sub>hist</sub>(<i>t</i>) is built before the solve,
+from the last step's voltages and currents: a history current <i>I</i><sub>hist</sub> flowing from node
+<i>k</i> to node <i>m</i> takes <i>I</i><sub>hist</sub> out of entry <i>k</i> and puts it into entry <i>m</i>.
+The branch currents of this step are not in it; they come afterwards, element by element, from
+<i>i</i> = <i>v</i>/<i>R</i><sub>eq</sub> + <i>I</i><sub>hist</sub>, and feed the next step's right-hand side.
+(In the rest of the chapter we write just <b>i</b> for this vector.)</p>
 
 <h3>c. The boss node</h3>
 <p>The source is the boss of node 1: it tells node 1 exactly what voltage to have. So node 1 is
@@ -1113,13 +1187,13 @@ current through yet. Its current is {m("0.0025 × (", num(n1['v'][2]), "−", nu
 ground. Then solve:</p>
 {eq(sb(BI, "U"), "=", col([n2['inj'][1], n2['inj'][2]], 6), ",&#8195;", sb(BV, "K"), "=", num(n2['vK'][0]),
     "'V,&#8195;", sb(BV, "U"), "=", col(n2['v'][2:], 4))}
-<p>And so on, step after step. Figure 12 shows the movie of node 3 for the first 80 ms. When the
+<p>And so on, step after step. Figure 13 shows the movie of node 3 for the first 80 ms. When the
 source switches on, the inductor and the capacitor play catch with the energy, at their natural
 frequency {m("1 / (2π", "<msqrt>" + cat("LC") + "</msqrt>", ") ≈", num(f0, 0), "'Hz")}. The voltage
 overshoots to {f(peak, 1)} V. Then the load calms the ringing down, and we end up exactly where Phasor
 Pete's photo says we should.</p>
 <figure><img src="fig/network_result.svg" style="width:100%">
-<figcaption>Figure 12: Voltage of node 3 after the source switches on, and Pete's steady state
+<figcaption>Figure 13: Voltage of node 3 after the source switches on, and Pete's steady state
 (a phasor calculation of the same circuit).</figcaption></figure>
 """ + box("recipe", "The recipe of every EMT program", """
 <p><b>Once:</b> put every element in disguise, stamp <b>G</b>, and factorise <b>G</b><sub>UU</sub>.</p>
@@ -1142,18 +1216,18 @@ it is open (1 MΩ). A fault is a switch from a node to ground.</p>
 recipe: re-stamp <b>G</b>, factorise it again, and carry on. The notes (history currents) are not
 touched, so the inductors and capacitors remember their currents and voltages across the switching
 instant, just like real ones.</p>
-<p>Let us short-circuit node 3 to ground at 30 ms and remove the short at 60 ms (Figure 13).</p>
+<p>Let us short-circuit node 3 to ground at 30 ms and remove the short at 60 ms (Figure 14).</p>
 <figure><img src="fig/network_fault.svg" style="width:80%">
-<figcaption>Figure 13: The network of Figure 10, with a fault from node 3 to ground.</figcaption></figure>
+<figcaption>Figure 14: The network of Figure 11, with a fault from node 3 to ground.</figcaption></figure>
 <p>While the fault is open, it stamps a tiny 1/10<sup>6</sup> S onto <b>G</b><sub>33</sub>. When it
 closes, it stamps 1/0.01 = 100 S:</p>
 {eq("before:&#8195;", sb(BG, "UU"), "=", mat(Gf_off, 6), "&#8195;&#8195;during:&#8195;", sb(BG, "UU"), "=", mat(Gf_on, 4))}
-<p>Figure 14 shows what happens. When the fault hits, node 3 collapses to almost zero, and the capacitor
+<p>Figure 15 shows what happens. When the fault hits, node 3 collapses to almost zero, and the capacitor
 dumps its charge into the fault. The current in <i>L</i> grows to about {f(ifault_peak, 1)} A; the
 inductor is the only thing limiting it. When the fault is removed, the capacitor and the inductor play
 catch again at about {f0:.0f} Hz, until the network settles back to normal.</p>
 <figure><img src="fig/fault_result.svg" style="width:100%">
-<figcaption>Figure 14: Voltage of node 3 and current in the inductor, with the fault (shaded) from 30 to
+<figcaption>Figure 15: Voltage of node 3 and current in the inductor, with the fault (shaded) from 30 to
 60 ms.</figcaption></figure>
 """)
 
@@ -1187,15 +1261,15 @@ zoom in on the first few steps.</p>
     a(f"""
 <h2>8. The ghost in the machine</h2>
 <p>So far we have only closed switches. Let us take the circuit of chapter 4 again, wait until the
-current has almost reached 10 A, and then <i>open</i> the switch at <i>t</i> = 3 ms (Figure 15).</p>
+current has almost reached 10 A, and then <i>open</i> the switch at <i>t</i> = 3 ms (Figure 16).</p>
 <figure><img src="fig/rl_open_circuit.svg" style="width:60%">
-<figcaption>Figure 15: The circuit of chapter 4, with a switch that opens at 3 ms.</figcaption></figure>
+<figcaption>Figure 16: The circuit of chapter 4, with a switch that opens at 3 ms.</figcaption></figure>
 <p>Remember the inductor's personality: it hates sudden changes in its current. In a real circuit, when
 the switch opens, the inductor fights back by pushing the voltage across the opening contacts up very
 high (that is why breakers draw arcs), and the current dies away very quickly. Now look at what our
-simulation says (Figure 16).</p>
+simulation says (Figure 17).</p>
 <figure><img src="fig/rl_open_result.svg" style="width:100%">
-<figcaption>Figure 16: Left: current in the inductor. Right: voltage across the inductor at every step
+<figcaption>Figure 17: Left: current in the inductor. Right: voltage across the inductor at every step
 around the opening. Both calculated with the trapezoidal rule and Δt = 0.1 ms.</figcaption></figure>
 <img src="fig/ghost.svg" class="ghost" alt="">
 <p>The current looks fine. Just before the switch opens, it is {f(i_before, 2)} A, and from the next
@@ -1204,10 +1278,120 @@ step on, it is practically zero (less than {i_after:.4f} A).</p>
 the steps after it, the simulation says {", ".join(f(x, 1) for x in v_after)} V, and so on. It flips
 sign at every single step, for as long as we care to simulate. No current flows, and yet the inductor
 voltage keeps jumping between plus and minus {f(abs(v_after[-1]), 0)} V. Spooky.</p>
-<p>Does the voltage in a real circuit do that? Or is there a ghost in our simulation?</p>
+<p>Does the voltage in a real circuit do that? Or is there a ghost in our simulation? Think about it
+before you turn the page; chapter 9 catches it.</p>
 """ + box("try", "Ghost hunting", """<p>Use equation (4), with the 1 MΩ of the open switch in series with
 <i>R<sub>L</sub></i> = 20 Ω. What happens to <i>I</i><sub>hist</sub> from one step to the next? Who
 wrote the wrong note?</p>"""))
+
+    # ---------------------------------------------------------------- 9: chatter removal and interpolation
+    cda, half = rl_open_cda(dt)
+    check("rl_open.net", cda, ["R", "L"], "--chatter=on", "--interp=on")
+    k3 = int(round(3e-3 / dt)) - 1            # index of the 3.0 ms step
+    s30, s31, s32 = cda[k3], cda[k3 + 1], cda[k3 + 2]
+    fig, axs = plt.subplots(1, 2, figsize=(6.6, 2.5), gridspec_kw={"width_ratios": [1.4, 1]})
+    tc = np.array([0] + [x["t"] for x in cda]) * 1e3
+    vc = np.array([0] + [x["v"][3] for x in cda])
+    axs[0].plot(to, vo, ".-", color=GREY, lw=0.8, ms=3, label="plain (chapter 8)")
+    axs[0].plot(tc, vc, "o-", color=ACCENT, ms=3, lw=1.2, label="with chatter removal")
+    axs[0].axvline(3, color=GREY, ls="--", lw=0.8)
+    axs[0].set_xlabel("time (ms)"); axs[0].set_ylabel("voltage across L (V)"); axs[0].set_xlim(0, 5)
+    axs[0].legend(frameon=False, fontsize=8.5, loc="lower left")
+    m_ = (tc >= 2.55) & (tc <= 3.65)
+    axs[1].plot(tc[m_], vc[m_], "o-", color=ACCENT, ms=4, lw=1.2)
+    axs[1].plot([half["t"] * 1e3], [half["v"][3]], "o", mfc="white", mec=ACCENT, ms=6)
+    axs[1].annotate("half step\n(not recorded)", (half["t"] * 1e3, half["v"][3]), (3.25, half["v"][3] * 0.55), fontsize=8,
+                    arrowprops=dict(arrowstyle="-", color="#666", lw=0.7))
+    axs[1].axvline(3, color=GREY, ls="--", lw=0.8)
+    axs[1].set_xlabel("time (ms)"); axs[1].set_title("around the opening", fontsize=10)
+    fig.tight_layout(); save(fig, "cda_result.svg")
+
+    # interpolation: the demo circuit, run with EMTSim (dt = 0.2 ms, switch closes at 1.02 ms)
+    demo = os.path.join(ROOT, "circuits", "demo_interpolation.net")
+    late = emtsim(demo)                      # as in the file: interpolation off, chatter removal on
+    exact_ip = lambda t: 10 * (1 - np.exp(-(t - 1.02e-3) / 1e-3)) * (t > 1.02e-3)
+    have_demo = late is not None
+    if have_demo:
+        onv, oni = emtsim(demo, "--interp=on")
+        tl, il = late[0][:, 0], late[1]["L"]
+        ti, ii = onv[:, 0], oni["L"]
+        fig, ax = plt.subplots(figsize=(6.6, 2.5))
+        tt = np.linspace(0, 6e-3, 600)
+        ax.plot(tt * 1e3, exact_ip(tt), color=GREY, lw=2.2, label="exact")
+        ax.plot(np.r_[0, tl] * 1e3, np.r_[0, il], "s--", color=INK, ms=3.5, lw=0.9, label="switch at the next time point (1.2 ms)")
+        ax.plot(np.r_[0, ti] * 1e3, np.r_[0, ii], "o-", color=ACCENT, ms=3.5, lw=1.1, label="interpolation: switch at 1.02 ms")
+        ax.set_xlim(0.8, 3.2); ax.set_ylim(-0.3, 9); ax.set_xlabel("time (ms)"); ax.set_ylabel("current i (A)")
+        ax.legend(frameon=False, fontsize=8.5, loc="lower right")
+        fig.tight_layout(); save(fig, "interp_result.svg")
+        k14 = int(np.argmin(np.abs(tl - 1.4e-3)))
+        i_late, i_on, i_ex = il[k14], ii[k14], exact_ip(1.4e-3)
+    hist_half = s30['i']['L']                 # the half step's history current: the current alone
+    a(f"""
+<h2>9. Catching the ghost</h2>
+<p>Look at the inductor's note again, equation (4): <i>I</i><sub>hist</sub> = <i>i</i>(<i>t</i>−Δt) +
+<i>v</i>(<i>t</i>−Δt)/<i>R<sub>L</sub></i>. It remembers the <b>voltage</b> of the last step as well as the
+current. After the switch opens the current must be zero at every step, so equation (4) says
+0 = <i>v</i>(<i>t</i>)/<i>R<sub>L</sub></i> + <i>v</i>(<i>t</i>−Δt)/<i>R<sub>L</sub></i>, that is</p>
+{eq("v(t) = − v(t − Δt)")}
+<p>The voltage has to flip sign every step, forever. That is the ghost: the trapezoidal rule averages
+the voltage over each step, so a sudden jump can only be represented by an endless alternation around
+the true value. Nothing in the circuit does this; the note does. Programs call it <b>numerical
+chatter</b>, and it appears after every switching that jumps an inductor voltage or a capacitor
+current.</p>
+
+<h3>a. Chatter removal: write a shorter note</h3>
+<p>The cure is to forget the old voltage, just for a moment. Right after a switching we take two
+<b>half steps</b> of Δt/2 with a different rule, <i>backward Euler</i>, whose note holds only the
+current:</p>
+{eq("i(t) = i(t − Δt/2) +", fr("Δt", "2L"), "v(t),&#8195;&#8195;", I_HIST, "= i(t − Δt/2)")}
+{words("the same conductance Δt/2L as before, so <b>G</b> does not change; only the note is shorter.")}
+<p>With a step of exactly Δt/2, backward Euler has the same conductance as the trapezoidal rule, so
+nothing has to be rebuilt or refactorised. After the two half steps the trapezoidal rule takes over
+again as if nothing had happened. This is called <i>critical damping adjustment</i>, CDA; the
+half-step solution is not written to the output, so the time grid stays the same.</p>
+<p class="step">The circuit of chapter 8, with chatter removal</p>
+<p>At 3.0 ms the switch is still closed in that sample: <i>i</i> = {f(s30['i']['L'])} A,
+<i>v</i><sub>3</sub> = {f(s30['v'][3])} V. Then it opens. First half step, to 3.05 ms: the note is the current
+alone, {f(hist_half)} A. The open switch (1 MΩ) lets almost nothing through, so the inductor can only
+keep its note by pushing its voltage to</p>
+{eq(sb("v", "3"), "(3.05 'ms) ≈ −", R_L, "×", num(hist_half), "=", num(half['v'][3], 1), "'V,&#8195;", "i ≈", num(half['i']['L'], 4), "'A")}
+<p>That is the inductor's one protest at being switched off (in a real breaker it is the arc). Second
+half step, to 3.1 ms: the note is now {f(half['i']['L'], 4)} A, so <i>v</i><sub>3</sub> = {f(s31['v'][3], 3)} V and
+<i>i</i> = {f(s31['i']['L'], 4)} A. From here the trapezoidal rule continues with a note of
+{f(s31['i']['L'] + s31['v'][3] / 20, 4)} A: at 3.2 ms <i>v</i><sub>3</sub> = {f(s32['v'][3], 3)} V. A few millivolts remain, the echo of the
+{f(half['i']['L'], 4)} A that leaked through the 1 MΩ during the half step; the 187 V ghost is gone (Figure 18).</p>
+<figure><img src="fig/cda_result.svg" style="width:100%">
+<figcaption>Figure 18: The inductor voltage of chapter 8 with and without chatter removal. The hollow
+point is the half-step solution, which is not part of the output.</figcaption></figure>
+
+<h3>b. Interpolation: switch at the right instant</h3>
+<p>The second problem with a fixed time step is simpler to see. A switch is told to close at 1.02 ms,
+but the simulation only visits 1.0 ms and 1.2 ms. If it can only act at a time point, it closes at
+1.2 ms, and the whole current curve starts almost a step late (Figure 19, squares).</p>
+<p>The fix: take the step from 1.0 to 1.2 ms as usual, then notice that the switch should have acted
+at a fraction α = (1.02 − 1.0) / 0.2 = 0.1 of the way through it. Go back to that instant by
+<b>interpolating the whole state</b> (every node voltage, every note) between the two time points,</p>
+{eq("state(1.02 'ms) = (1 − α) state(1.0 'ms) + α state(1.2 'ms)")}
+<p>close the switch there, rebuild <b>G</b>, and continue from 1.02 ms: two half steps (chatter
+removal, since the switching jumps the inductor voltage), then normal steps. The simulation is now on a
+time grid shifted by 0.02 ms, so after the next step it interpolates back onto the original grid;
+the output has the same time points as before. The same trick finds a breaker's current zero, or the
+instant a diode's current crosses zero, inside a step.</p>
+""" + (f"""
+<figure><img src="fig/interp_result.svg" style="width:100%">
+<figcaption>Figure 19: A 10 V battery switched onto 1 Ω + 1 mH at 1.02 ms, with Δt = 0.2 ms (the
+circuit <code>demo_interpolation.net</code>). At 1.4 ms the exact current is {f(i_ex, 2)} A; the switch
+acting at the next time point gives {f(i_late, 2)} A, interpolation {f(i_on, 2)} A.</figcaption></figure>
+""" if have_demo else "") + """
+<p>The two belong together. Interpolation alone would still leave the trapezoidal rule's half-step
+delay after the switching (and the chatter); chatter removal alone acts one step late. With both, a
+switching acts at its instant as accurately as the trapezoidal rule itself allows.</p>
+""" + box("try", "Try it", """<p>Both methods are on by default in EMTSim; the book's circuits switch them off with
+the line <code>.options chatter=off interp=off</code>. Run chapter 8's circuit with
+<code>run.bat circuits\\demo_chatter.net --chatter=on</code>, or open <code>demo_chatter</code> and
+<code>demo_interpolation</code> in the editor: Run, tick <b>Hold run</b>, tick the option under Run
+settings, Run again, and the two results are drawn over each other. <code>docs/switching.md</code> has the
+details and where the code is.</p>"""))
 
     # ---------------------------------------------------------------- cheat sheet
     a(f"""
@@ -1223,12 +1407,16 @@ wrote the wrong note?</p>"""))
 {eq(I_HIST, "(t) = − i(t − Δt) −", fr("v(t − Δt)", R_C))}</div>
 <div><h4>The stamp of a conductance <i>g</i> between nodes <i>k</i> and <i>m</i></h4>
 {eq(sb(BG, "kk"), "<mo>+=</mo>", "g,&#8195;", sb(BG, "mm"), "<mo>+=</mo>", "g,&#8195;", sb(BG, "km"), "<mo>−=</mo>", "g,&#8195;", sb(BG, "mk"), "<mo>−=</mo>", "g")}</div>
-<div><h4>One time step</h4>
+<div><h4>One time step (left: the voltages now; right: history currents from the last step)</h4>
 {eq(sb(BG, "UU"), sb(BV, "U"), "=", sb(BI, "U"), "−", sb(BG, "UK"), sb(BV, "K"))}</div>
 <div><h4>Choosing Δt</h4><p style="text-indent:0;text-align:center">much smaller than the fastest thing you
 want to see: the simulation acts about Δt/2 late after a sudden jump.</p></div>
 <div><h4>Switches and faults</h4><p style="text-indent:0;text-align:center">closed 0.01 Ω, open 1 MΩ.
 When one changes: re-stamp <b>G</b>, factorise again, keep the notes.</p></div>
+<div><h4>Chatter removal (after a switching: two backward-Euler half steps, same <b>G</b>)</h4>
+{eq(I_HIST, "= i(t − Δt/2)", "&#8195;(L),&#8195;&#8195;", I_HIST, "= −", fr("v(t − Δt/2)", R_C), "&#8195;(C)")}</div>
+<div><h4>Interpolation (a switching at fraction α of the step)</h4>
+{eq("state(t + αΔt) = (1 − α) state(t) + α state(t + Δt)")}</div>
 </div>
 """)
 
